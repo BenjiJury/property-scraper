@@ -44,27 +44,39 @@ PRICE_DROP_THRESHOLD = 0
 # Coverage:
 #   Wandsworth  — SW11 (Battersea), SW12 (Balham), SW17 (Tooting),
 #                 SW18 (Wandsworth Town)
-#   Lambeth     — SE11, SW4 (Clapham), SW8, SW9, SE24 (Herne Hill)
+#   Lambeth     — SE11 (Kennington), SW4 (Clapham), SW8 (S.Lambeth),
+#                 SW9 (Brixton/Stockwell), SE24 (Herne Hill)
 #   Lewisham    — SE4, SE6, SE12, SE13, SE14, SE23, SE21/SE22 (Dulwich border)
 #   Kingston    — KT1, KT2
 #   Merton      — SW19 (Wimbledon), SW20, CR4
 #   Richmond    — TW1, TW2, TW9, TW10
+#
+# Note: Lambeth's REGION^93799 has been migrated to Rightmove's new Next.js
+# architecture and serves a client-side shell page with no listing data in HTML.
+# It is replaced here with individual outcode entries which remain on the old
+# server-rendered stack.  OUTCODE IDs are verified from live Rightmove URLs
+# (SW4=2517, SW8=2521 confirmed; others derived from the sequential pattern
+# visible in the existing SE21=2050, SE22=2051, SE24=2053 entries below).
 #
 # Herne Hill (SE24) falls within the Lambeth region.
 # Dulwich (SE21) and East Dulwich (SE22) fall within Lewisham/Lambeth regions.
 # Uncomment the outcode entries below for finer-grained targeting.
 
 SEARCH_LOCATIONS = [
-    {"name": "Wandsworth",           "identifier": "REGION^93977"},
-    {"name": "Lambeth",              "identifier": "REGION^93799"},
-    {"name": "Lewisham",             "identifier": "REGION^61413"},
-    {"name": "Kingston upon Thames", "identifier": "REGION^93968"},
-    {"name": "Merton",               "identifier": "REGION^61414"},
-    {"name": "Richmond upon Thames", "identifier": "REGION^93937"},
-    # Outcode-level alternatives (uncomment for tighter targeting):
-    # {"name": "Dulwich (SE21)",     "identifier": "OUTCODE^2050"},
-    # {"name": "East Dulwich (SE22)","identifier": "OUTCODE^2051"},
-    # {"name": "Herne Hill (SE24)",  "identifier": "OUTCODE^2053"},
+    {"name": "Wandsworth",                      "identifier": "REGION^93977"},
+    # Lambeth — split into outcode entries (REGION^93799 is client-side only):
+    {"name": "Lambeth (SE11/Kennington)",       "identifier": "OUTCODE^2040"},
+    {"name": "Lambeth (SW4/Clapham)",           "identifier": "OUTCODE^2517"},
+    {"name": "Lambeth (SW8/S.Lambeth)",         "identifier": "OUTCODE^2521"},
+    {"name": "Lambeth (SW9/Brixton)",           "identifier": "OUTCODE^2522"},
+    {"name": "Lambeth (SE24/Herne Hill)",       "identifier": "OUTCODE^2053"},
+    {"name": "Lewisham",                        "identifier": "REGION^61413"},
+    {"name": "Kingston upon Thames",            "identifier": "REGION^93968"},
+    {"name": "Merton",                          "identifier": "REGION^61414"},
+    {"name": "Richmond upon Thames",            "identifier": "REGION^93937"},
+    # Outcode-level alternatives for Lewisham (uncomment for tighter targeting):
+    # {"name": "Dulwich (SE21)",                "identifier": "OUTCODE^2050"},
+    # {"name": "East Dulwich (SE22)",           "identifier": "OUTCODE^2051"},
 ]
 
 # ── Request / scraping settings ────────────────────────────────────────────────
