@@ -83,30 +83,8 @@ SEARCH_LOCATIONS = [
     {"name": "Lewisham",             "identifier": "REGION^61413"},
     {"name": "Kingston upon Thames", "identifier": "REGION^93968"},
     {"name": "Richmond upon Thames", "identifier": "REGION^93937"},
-    # ── Teddington (TW11) ─────────────────────────────────────────────────────
-    # TW11 is NOT covered by Richmond upon Thames (REGION^93937 covers TW1/2/9/10 only).
-    # OUTCODE^2644 was tried but pointed to Devon — IDs are not assigned in
-    # postal-code order.  To find the correct ID, visit:
-    #   rightmove.co.uk → search "Teddington" → copy locationIdentifier from URL
-    # or run from ~/property-scraper:
-    #   python3 -c "import sys,sys; sys.path.insert(0,'property_tracker'); from scraper import lookup_location; [print(r) for r in lookup_location('Teddington')]"
-    # {"name": "Teddington (TW11)",    "identifier": "OUTCODE^????"},
-    #
-    # ── Dulwich ───────────────────────────────────────────────────────────────
-    # East Dulwich (SE22) is within Lewisham borough and is already covered by
-    # the Lewisham region above (listings labelled "Lewisham").
-    # Dulwich (SE21) spans Lewisham and Southwark; the Southwark portion is not
-    # covered.  OUTCODE^2050 was tried for SE21 but hits Next.js (same issue as
-    # Lambeth above).  To cover Southwark/SE21 add the Southwark REGION once
-    # you have the correct ID:
-    #   rightmove.co.uk → search "Southwark" → copy locationIdentifier from URL
-    # {"name": "Southwark",            "identifier": "REGION^?????"},
-    #
-    # ── Bermondsey (SE1 / SE16) ───────────────────────────────────────────────
-    # Both SE1 and SE16 outcodes have migrated to Rightmove's Next.js stack and
-    # cannot be scraped without a headless browser.  Bermondsey is in Southwark
-    # borough — once you have the Southwark REGION ID (see above), those
-    # listings will be covered automatically.
+    {"name": "Teddington",           "identifier": "REGION^1321"},
+    {"name": "Bermondsey",           "identifier": "REGION^85212"},
 ]
 
 # ── Request / scraping settings ────────────────────────────────────────────────
