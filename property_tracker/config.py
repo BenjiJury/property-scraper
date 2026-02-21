@@ -55,9 +55,9 @@ PRICE_DROP_THRESHOLD = 0
 # Uncomment the outcode entries below for finer-grained targeting.
 
 SEARCH_LOCATIONS = [
-    {"name": "Wandsworth",           "identifier": "REGION^93924"},
+    {"name": "Wandsworth",           "identifier": "REGION^93977"},
     {"name": "Lambeth",              "identifier": "REGION^93799"},
-    {"name": "Lewisham",             "identifier": "REGION^93942"},
+    {"name": "Lewisham",             "identifier": "REGION^61413"},
     {"name": "Kingston upon Thames", "identifier": "REGION^93714"},
     {"name": "Merton",               "identifier": "REGION^93888"},
     {"name": "Richmond upon Thames", "identifier": "REGION^93937"},
