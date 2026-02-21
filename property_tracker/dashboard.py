@@ -6,7 +6,7 @@ Run directly:
 
 Columns
 -------
-  Address       — display address from Rightmove
+  Address       — display address (tap/click to open listing on Rightmove)
   Area          — search area the listing was found in
   Price         — current asking price
   Change        — total reduction from first recorded price (red ↓)
@@ -23,10 +23,12 @@ Removed listings are shown below a section break, dimmed.
 """
 
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 
 from rich import box
+from rich.columns import Columns
 from rich.console import Console
+from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
@@ -42,12 +44,17 @@ console = Console()
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
+def _now_utc() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 def _days_on_market(first_seen: str) -> int:
     """Return whole days between first_seen (ISO string) and now (UTC)."""
     try:
-        dt  = datetime.fromisoformat(first_seen)
-        dom = (datetime.utcnow() - dt).days
-        return max(0, dom)
+        dt = datetime.fromisoformat(first_seen)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return max(0, (_now_utc() - dt).days)
     except (ValueError, TypeError):
         return 0
 
@@ -83,6 +90,60 @@ def _fmt_date(iso_str: str) -> str:
         return iso_str[:10] if iso_str else "—"
 
 
+def _address_link(address: str, url: str | None) -> Text:
+    """Return address text, hyperlinked to the Rightmove URL if available."""
+    if url:
+        return Text(address, style=f"link {url}")
+    return Text(address)
+
+
+# ── Stats panel ────────────────────────────────────────────────────────────────
+
+def _build_stats(active: list, removed: list) -> None:
+    """Print a row of summary panels above the table."""
+    prices = [l["price"] for l in active]
+
+    # Per-area counts
+    area_counts: dict[str, int] = {}
+    for l in active:
+        area = l.get("area") or "Unknown"
+        area_counts[area] = area_counts.get(area, 0) + 1
+
+    # Price stats
+    if prices:
+        avg   = sum(prices) // len(prices)
+        lo    = min(prices)
+        hi    = max(prices)
+        price_text = (
+            f"[bold]£{lo:,}[/bold] – [bold]£{hi:,}[/bold]\n"
+            f"avg [cyan]£{avg:,}[/cyan]"
+        )
+    else:
+        price_text = "[dim]no data[/dim]"
+
+    # Area breakdown
+    area_lines = "\n".join(
+        f"[cyan]{area}[/cyan]  [bold]{count}[/bold]"
+        for area, count in sorted(area_counts.items(), key=lambda x: -x[1])
+    ) or "[dim]none[/dim]"
+
+    panels = [
+        Panel(
+            f"[bold bright_green]{len(active)}[/bold bright_green] active\n"
+            f"[dim]{len(removed)} removed[/dim]",
+            title="Listings",
+            border_style="cyan",
+            expand=True,
+        ),
+        Panel(price_text, title="Price range", border_style="cyan", expand=True),
+        Panel(area_lines,  title="By area",    border_style="cyan", expand=True),
+    ]
+    console.print(Columns(panels, expand=True))
+    console.print()
+
+
+# ── Table ──────────────────────────────────────────────────────────────────────
+
 def _build_table() -> Table:
     table = Table(
         box=box.ROUNDED,
@@ -116,7 +177,7 @@ def show_dashboard() -> None:
     console.print(
         f"  [cyan]{len(active)} active[/cyan]"
         f"  [dim]{len(removed)} removed[/dim]"
-        f"  [dim]Updated {datetime.utcnow().strftime('%d %b %Y %H:%M')} UTC[/dim]"
+        f"  [dim]Updated {_now_utc().strftime('%d %b %Y %H:%M')} UTC[/dim]"
     )
     console.print()
 
@@ -127,6 +188,8 @@ def show_dashboard() -> None:
         )
         return
 
+    _build_stats(active, removed)
+
     table = _build_table()
 
     # ── Active listings ────────────────────────────────────────────────────────
@@ -135,7 +198,7 @@ def show_dashboard() -> None:
         change = _price_change_text(l["price"], l.get("initial_price"))
 
         table.add_row(
-            l.get("address", ""),
+            _address_link(l.get("address", ""), l.get("listing_url")),
             l.get("area", ""),
             _fmt_price(l["price"]),
             change,
@@ -184,6 +247,8 @@ def show_dashboard() -> None:
         Text("● active", style="bright_green"),
         Text("  "),
         Text("✕ removed", style="dim red"),
+        Text("  "),
+        Text("Address is a hyperlink — tap to open in browser", style="dim"),
     ]
     line = Text()
     for part in legend_parts:
