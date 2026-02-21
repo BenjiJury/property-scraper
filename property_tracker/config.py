@@ -63,20 +63,24 @@ PRICE_DROP_THRESHOLD = 0
 # Uncomment the outcode entries below for finer-grained targeting.
 
 SEARCH_LOCATIONS = [
-    {"name": "Wandsworth",                      "identifier": "REGION^93977"},
-    # Lambeth — split into outcode entries (REGION^93799 is client-side only):
-    {"name": "Lambeth (SE11/Kennington)",       "identifier": "OUTCODE^2040"},
-    {"name": "Lambeth (SW4/Clapham)",           "identifier": "OUTCODE^2517"},
-    {"name": "Lambeth (SW8/S.Lambeth)",         "identifier": "OUTCODE^2521"},
-    {"name": "Lambeth (SW9/Brixton)",           "identifier": "OUTCODE^2522"},
-    {"name": "Lambeth (SE24/Herne Hill)",       "identifier": "OUTCODE^2053"},
-    {"name": "Lewisham",                        "identifier": "REGION^61413"},
-    {"name": "Kingston upon Thames",            "identifier": "REGION^93968"},
-    {"name": "Merton",                          "identifier": "REGION^61414"},
-    {"name": "Richmond upon Thames",            "identifier": "REGION^93937"},
-    # Outcode-level alternatives for Lewisham (uncomment for tighter targeting):
-    # {"name": "Dulwich (SE21)",                "identifier": "OUTCODE^2050"},
-    # {"name": "East Dulwich (SE22)",           "identifier": "OUTCODE^2051"},
+    {"name": "Wandsworth",           "identifier": "REGION^93977"},
+    # Lambeth (REGION^93799) and all its outcode pages have been migrated to
+    # Rightmove's Next.js client-side architecture.  Listing data is fetched
+    # by browser JavaScript via tokens we cannot replicate without a headless
+    # browser.  Outcode entries below were tested and all return the same
+    # empty shell; they are commented out to avoid dead run time.
+    # {"name": "Lambeth (SE11/Kennington)", "identifier": "OUTCODE^2040"},
+    # {"name": "Lambeth (SW4/Clapham)",     "identifier": "OUTCODE^2517"},
+    # {"name": "Lambeth (SW8/S.Lambeth)",   "identifier": "OUTCODE^2521"},
+    # {"name": "Lambeth (SW9/Brixton)",     "identifier": "OUTCODE^2522"},
+    # {"name": "Lambeth (SE24/Herne Hill)", "identifier": "OUTCODE^2053"},
+    {"name": "Lewisham",             "identifier": "REGION^61413"},
+    {"name": "Kingston upon Thames", "identifier": "REGION^93968"},
+    {"name": "Merton",               "identifier": "REGION^61414"},
+    {"name": "Richmond upon Thames", "identifier": "REGION^93937"},
+    # Outcode-level alternatives (uncomment for tighter targeting):
+    # {"name": "Dulwich (SE21)",     "identifier": "OUTCODE^2050"},
+    # {"name": "East Dulwich (SE22)","identifier": "OUTCODE^2051"},
 ]
 
 # ── Request / scraping settings ────────────────────────────────────────────────

@@ -15,7 +15,7 @@ self-documenting without flooding the terminal.
 
 import logging
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 
 # ── Logging setup (must happen before any module imports that use logging) ─────
 
@@ -37,7 +37,7 @@ def main() -> None:
     logger = logging.getLogger("main")
 
     logger.info("=" * 60)
-    logger.info("Run started  %s UTC", datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"))
+    logger.info("Run started  %s UTC", datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"))
 
     # 1 — Initialise database
     from database import init_db
