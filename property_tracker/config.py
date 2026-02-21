@@ -107,3 +107,12 @@ NOTIFICATION_ID_DROP = 1002   # Android notification ID for price drops
 # ── Dashboard display settings ────────────────────────────────────────────────
 
 SHOW_REMOVED_LISTINGS = True   # Show de-listed properties (dimmed) in table
+
+# ── Export settings ───────────────────────────────────────────────────────────
+
+# Discord: paste your webhook URL here (Server Settings → Integrations → Webhooks)
+# Leave empty ("") to disable Discord export.
+DISCORD_WEBHOOK_URL = ""
+
+# PDF and CSV output directory (defaults to the same folder as this file)
+EXPORT_DIR = BASE_DIR
