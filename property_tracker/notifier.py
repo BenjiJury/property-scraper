@@ -57,19 +57,25 @@ def _send(title: str, content: str, notification_id: int) -> bool:
     ]
 
     try:
-        result = subprocess.run(
+        # Run in a detached session so the IPC handshake with the Termux:API
+        # service doesn't block our process.  We wait up to 10 s for a quick
+        # result; if it's still running after that the notification is being
+        # delivered in the background and we move on.
+        proc = subprocess.Popen(
             cmd,
-            capture_output=True,
-            text=True,
-            timeout=15,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
         )
-        if result.returncode != 0:
-            logger.error(
-                "termux-notification returned %d: %s",
-                result.returncode,
-                result.stderr.strip() or "(no stderr)",
-            )
-            return False
+        try:
+            proc.wait(timeout=10)
+            if proc.returncode != 0:
+                logger.error(
+                    "termux-notification returned %d", proc.returncode
+                )
+                return False
+        except subprocess.TimeoutExpired:
+            logger.debug("termux-notification IPC in progress (background)")
         return True
 
     except FileNotFoundError:
@@ -77,9 +83,6 @@ def _send(title: str, content: str, notification_id: int) -> bool:
             "termux-notification not found.  "
             "Run: pkg install termux-api  and install the Termux:API app."
         )
-        return False
-    except subprocess.TimeoutExpired:
-        logger.error("termux-notification timed out after 15 s")
         return False
     except Exception as exc:
         logger.error("Unexpected notification error: %s", exc)
