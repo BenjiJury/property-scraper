@@ -131,30 +131,21 @@ def _delay() -> None:
 # ── URL builder ────────────────────────────────────────────────────────────────
 
 def _search_url(location_identifier: str, index: int = 0) -> str:
-    """Build a URL for Rightmove's internal JSON search API."""
+    """Build a Rightmove search-results page URL."""
     params = {
-        "locationIdentifier":        location_identifier,
-        "numberOfPropertiesPerPage": 24,
-        "radius":                    "0.0",
-        "sortType":                  6,
-        "index":                     index,
-        "includeSSTC":               "false",
-        "viewType":                  "LIST",
-        "channel":                   "BUY",
-        "areaSizeUnit":              "sqft",
-        "currencyCode":              "GBP",
-        "isFetching":                "false",
-        "minBedrooms":               MIN_BEDROOMS,
-        "maxBedrooms":               MAX_BEDROOMS,
-        "minPrice":                  MIN_PRICE,
-        "maxPrice":                  MAX_PRICE,
-        "propertyTypes":             ",".join(PROPERTY_TYPES),
-        "mustHave":                  "",
-        "dontShow":                  "newHome,sharedOwnership,retirement",
+        "locationIdentifier": location_identifier,
+        "minBedrooms":        MIN_BEDROOMS,
+        "maxBedrooms":        MAX_BEDROOMS,
+        "minPrice":           MIN_PRICE,
+        "maxPrice":           MAX_PRICE,
+        "propertyTypes":      ",".join(PROPERTY_TYPES),
+        "mustHave":           "",
+        "dontShow":           "newHome,sharedOwnership,retirement",
+        "furnishTypes":       "",
+        "keywords":           "",
+        "index":              index,
     }
-    # Rightmove's API expects the literal '^' in locationIdentifier,
-    # not the percent-encoded %5E that urlencode produces.
-    return f"{_BASE_URL}{_API_SEARCH}?{urlencode(params)}".replace("%5E", "^")
+    return f"{_BASE_URL}{_SEARCH_PATH}?{urlencode(params)}"
 
 
 # ── HTTP fetch ─────────────────────────────────────────────────────────────────
@@ -372,10 +363,14 @@ def _extract_json_model(html: str) -> dict | None:
                     "pagination":  page_props.get("pagination", {}),
                     "resultCount": page_props.get("resultCount", len(properties)),
                 }
-            # Log available top-level pageProps keys to help diagnose structure
+            # Dump up to two levels of pageProps so we can find the right key path
+            def _summarise(obj, depth=2):
+                if depth == 0 or not isinstance(obj, dict):
+                    return type(obj).__name__
+                return {k: _summarise(v, depth - 1) for k, v in list(obj.items())[:10]}
             logger.warning(
-                "__NEXT_DATA__ found but no 'properties' key; pageProps keys: %s",
-                list(page_props.keys())[:20],
+                "__NEXT_DATA__ found but no 'properties' key; pageProps structure: %s",
+                _summarise(page_props),
             )
     except Exception as exc:
         logger.debug("__NEXT_DATA__ extraction failed: %s", exc)
@@ -538,19 +533,20 @@ def _scrape_area(location: dict, session: requests.Session) -> list:
             _delay()
 
         url  = _search_url(identifier, page_index)
-        data = _fetch_json(url, session, referer=f"{_BASE_URL}/property-for-sale/")
+        html = _fetch(url, session, referer=f"{_BASE_URL}/property-for-sale/")
 
+        if not html:
+            logger.warning("%s — failed to fetch page at index %d; stopping.", name, page_index)
+            break
+
+        data = _extract_json_model(html)
         if not data:
-            logger.warning("%s — failed to fetch data at index %d; stopping.", name, page_index)
+            logger.warning("%s — no listing data at index %d; stopping.", name, page_index)
             break
 
         properties = data.get("properties") or []
         if not properties:
-            if page_index == 0:
-                logger.warning(
-                    "%s — API returned no properties; response keys: %s",
-                    name, list(data.keys())[:15],
-                )
+            logger.debug("%s — empty properties list at index %d", name, page_index)
             break
 
         # Log total on first page only
