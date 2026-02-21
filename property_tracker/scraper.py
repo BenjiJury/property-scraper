@@ -203,13 +203,19 @@ def _fetch(url: str, session: requests.Session, referer: str | None = None) -> s
 
 def _extract_json_model(html: str) -> dict | None:
     """
-    Pull window.jsonModel out of the page HTML.
+    Pull listing data out of the page HTML.
 
-    Strategy 1 — regex on the full page text (fastest).
-    Strategy 2 — BeautifulSoup <script> tag iteration with brace matching
-                 (handles minified JS where strategy 1 may fail).
+    Strategy 1 — window.jsonModel regex (old Rightmove architecture).
+    Strategy 2 — BeautifulSoup window.jsonModel script tag search.
+    Strategy 3 — Next.js __NEXT_DATA__ extraction (new architecture).
     """
-    # Strategy 1: simple regex
+    # Detect a hard "not found" page early so we get a clear log message.
+    if "We couldn\u2019t find the place you were looking for" in html or \
+       "We couldn't find the place you were looking for" in html:
+        logger.warning("Rightmove returned a 'not found' page — location identifier may be stale")
+        return None
+
+    # Strategy 1: window.jsonModel — simple regex on full page text
     m = re.search(r"window\.jsonModel\s*=\s*(\{)", html)
     if m:
         start = m.start(1)
@@ -220,7 +226,7 @@ def _extract_json_model(html: str) -> dict | None:
             except json.JSONDecodeError as exc:
                 logger.debug("Strategy-1 JSON decode failed: %s", exc)
 
-    # Strategy 2: BeautifulSoup script tag search
+    # Strategy 2: window.jsonModel — BeautifulSoup script tag iteration
     try:
         soup = BeautifulSoup(html, "html.parser")
         for tag in soup.find_all("script"):
@@ -239,8 +245,36 @@ def _extract_json_model(html: str) -> dict | None:
     except Exception as exc:
         logger.debug("BeautifulSoup parse error: %s", exc)
 
-    logger.warning("Could not extract window.jsonModel from page")
-    logger.warning("Page snippet (first 500 chars): %s", html[:500].replace("\n", " "))
+    # Strategy 3: Next.js __NEXT_DATA__ (Rightmove migrated to Next.js)
+    try:
+        soup = BeautifulSoup(html, "html.parser") if "soup" not in dir() else soup
+        next_tag = soup.find("script", {"id": "__NEXT_DATA__"})
+        if next_tag and next_tag.string:
+            next_data = json.loads(next_tag.string)
+            page_props = next_data.get("props", {}).get("pageProps", {})
+            # Rightmove nests results under various keys — try all known paths.
+            properties = (
+                page_props.get("properties")
+                or page_props.get("searchResults", {}).get("properties")
+                or page_props.get("results", {}).get("properties")
+            )
+            if properties is not None:
+                logger.debug("Extracted %d properties via __NEXT_DATA__", len(properties))
+                return {
+                    "properties":  properties,
+                    "pagination":  page_props.get("pagination", {}),
+                    "resultCount": page_props.get("resultCount", len(properties)),
+                }
+            # Log available top-level pageProps keys to help diagnose structure
+            logger.warning(
+                "__NEXT_DATA__ found but no 'properties' key; pageProps keys: %s",
+                list(page_props.keys())[:20],
+            )
+    except Exception as exc:
+        logger.debug("__NEXT_DATA__ extraction failed: %s", exc)
+
+    logger.warning("Could not extract listing data from page")
+    logger.warning("Page snippet (first 300 chars): %s", html[:300].replace("\n", " "))
     return None
 
 
