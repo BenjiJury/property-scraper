@@ -406,6 +406,12 @@ def _extract_json_model(html: str) -> dict | None:
                 "__NEXT_DATA__ found but no 'properties' key; pageProps structure: %s",
                 _summarise(page_props),
             )
+            # Log actual env / publicRuntimeConfig values — these contain the
+            # real backend API URLs that the browser JS uses to fetch listings.
+            for key in ("env", "publicRuntimeConfig", "serverRuntimeConfig"):
+                val = page_props.get(key)
+                if isinstance(val, dict):
+                    logger.warning("__NEXT_DATA__ %s values: %s", key, val)
     except Exception as exc:
         logger.debug("__NEXT_DATA__ extraction failed: %s", exc)
 
