@@ -63,6 +63,10 @@ PRICE_DROP_THRESHOLD = 0
 # Uncomment the outcode entries below for finer-grained targeting.
 
 SEARCH_LOCATIONS = [
+    # Tooting must come before Wandsworth so that SW17 listings are labelled
+    # "Tooting" rather than "Wandsworth" (scraper keeps the first-seen area label).
+    # OUTCODE IDs for SW: SW[n] = 2513 + n (verified: SW4=2517, SW8=2521, SW9=2522).
+    {"name": "Tooting (SW17)",       "identifier": "OUTCODE^2530"},
     {"name": "Wandsworth",           "identifier": "REGION^93977"},
     # Lambeth (REGION^93799) and all its outcode pages have been migrated to
     # Rightmove's Next.js client-side architecture.  Listing data is fetched
@@ -76,11 +80,17 @@ SEARCH_LOCATIONS = [
     # {"name": "Lambeth (SE24/Herne Hill)", "identifier": "OUTCODE^2053"},
     {"name": "Lewisham",             "identifier": "REGION^61413"},
     {"name": "Kingston upon Thames", "identifier": "REGION^93968"},
-    {"name": "Merton",               "identifier": "REGION^61414"},
     {"name": "Richmond upon Thames", "identifier": "REGION^93937"},
-    # Outcode-level alternatives (uncomment for tighter targeting):
-    # {"name": "Dulwich (SE21)",     "identifier": "OUTCODE^2050"},
-    # {"name": "East Dulwich (SE22)","identifier": "OUTCODE^2051"},
+    # Teddington (TW11) is NOT covered by the Richmond region above (TW1/2/9/10 only).
+    # ID derived by lookup — verify with: python3 -c "from scraper import lookup_location;
+    # [print(r) for r in lookup_location('Teddington')]"
+    {"name": "Teddington (TW11)",    "identifier": "OUTCODE^2644"},
+    # OUTCODE IDs for SE: SE[n] = 2029 + n (verified: SE11=2040, SE21=2050,
+    # SE22=2051, SE24=2053 from live Rightmove URLs).
+    {"name": "Dulwich (SE21)",       "identifier": "OUTCODE^2050"},
+    {"name": "East Dulwich (SE22)",  "identifier": "OUTCODE^2051"},
+    {"name": "Bermondsey (SE1)",     "identifier": "OUTCODE^2030"},
+    {"name": "Bermondsey (SE16)",    "identifier": "OUTCODE^2045"},
 ]
 
 # ── Request / scraping settings ────────────────────────────────────────────────

@@ -281,52 +281,128 @@ def export_pdf(path: str | None = None) -> str:
 
 # ── Discord export ─────────────────────────────────────────────────────────────
 
-def _listing_field(l: dict, *, prefix: str = "") -> dict:
-    """Return a single Discord embed field dict for one listing."""
-    change   = _price_change(l["price"], l.get("initial_price"))
-    dom      = _days_on_market(l.get("first_seen", ""))
-    beds     = l.get("bedrooms") or "?"
-    area     = l.get("area", "")
-    addr     = l.get("address", "Unknown")
-    url_link = l.get("listing_url", "")
+def _fmt_table(headers: list[str], rows: list[list[str]]) -> str:
+    """
+    Return a monospace ASCII table wrapped in a Discord code block.
 
-    name = f"{prefix}£{l['price']:,}  ·  {beds}bed  ·  {area}"
-    addr_md = f"[{addr}]({url_link})" if url_link else addr
-    value_parts = [f"**{addr_md}**"]
-    if change != "—":
-        value_parts.append(f"Price change: {change}")
-    value_parts.append(f"DOM: {dom}d  ·  First seen: {_fmt_date(l.get('first_seen', ''))}")
-    return {"name": name, "value": "\n".join(value_parts), "inline": False}
+    Columns are padded to the widest value in each column.  The result fits
+    in a Discord embed field value (≤ 1 024 chars) when rows are reasonable.
+    """
+    all_rows = [headers] + rows
+    widths = [max(len(str(r[i])) for r in all_rows) for i in range(len(headers))]
+
+    def _fmt_row(cells: list) -> str:
+        return "  ".join(str(c).ljust(widths[i]) for i, c in enumerate(cells))
+
+    sep = "  ".join("─" * w for w in widths)
+    lines = [_fmt_row(headers), sep] + [_fmt_row(r) for r in rows]
+    return "```\n" + "\n".join(lines) + "\n```"
 
 
-def _stats_fields(active: list) -> list[dict]:
-    """Return price-range and by-area embed fields."""
-    fields = []
+def _truncate(s: str, n: int) -> str:
+    return s if len(s) <= n else s[: n - 1] + "…"
+
+
+def _new_listings_table(listings: list, max_rows: int = 10) -> dict:
+    """Return an embed field containing a monospace table of new listings."""
+    shown = listings[:max_rows]
+    rows = []
+    for l in shown:
+        rows.append([
+            f"£{l['price']:,}",
+            str(l.get("bedrooms") or "?"),
+            _truncate(l.get("area", ""), 16),
+            f"{_days_on_market(l.get('first_seen', ''))}d",
+            _truncate(l.get("address", "Unknown"), 32),
+        ])
+    table = _fmt_table(["Price", "Beds", "Area", "DOM", "Address"], rows)
+    suffix = f"\n*…and {len(listings) - max_rows} more*" if len(listings) > max_rows else ""
+    return {
+        "name": f"🆕  New listings  ({len(listings)})",
+        "value": (table + suffix)[:1024],
+        "inline": False,
+    }
+
+
+def _price_drops_table(price_drops: list, max_rows: int = 10) -> dict:
+    """Return an embed field containing a monospace table of price drops."""
+    shown = price_drops[:max_rows]
+    rows = []
+    for l, old_price, new_price in shown:
+        saved = old_price - new_price
+        rows.append([
+            _truncate(l.get("address", "Unknown"), 28),
+            _truncate(l.get("area", ""), 14),
+            f"£{old_price:,}",
+            f"£{new_price:,}",
+            f"↓£{saved:,}",
+        ])
+    table = _fmt_table(["Address", "Area", "Was", "Now", "Saved"], rows)
+    suffix = (
+        f"\n*…and {len(price_drops) - max_rows} more*"
+        if len(price_drops) > max_rows else ""
+    )
+    return {
+        "name": f"💸  Price drops  ({len(price_drops)})",
+        "value": (table + suffix)[:1024],
+        "inline": False,
+    }
+
+
+def _dashboard_table(active: list, max_rows: int = 15) -> dict:
+    """Return an embed field with a table of the top active listings."""
+    def _sort_key(l):
+        has_drop = (l.get("initial_price") or 0) > l["price"]
+        return (not has_drop, l.get("first_seen", ""))
+
+    shown = sorted(active, key=_sort_key)[:max_rows]
+    rows = []
+    for l in shown:
+        change = _price_change(l["price"], l.get("initial_price"))
+        flag = "↓" if change != "—" else " "
+        rows.append([
+            flag,
+            f"£{l['price']:,}",
+            str(l.get("bedrooms") or "?"),
+            _truncate(l.get("area", ""), 16),
+            f"{_days_on_market(l.get('first_seen', ''))}d",
+            _truncate(l.get("address", "Unknown"), 30),
+        ])
+    table = _fmt_table(["", "Price", "Bd", "Area", "DOM", "Address"], rows)
+    suffix = (
+        f"\n*…and {len(active) - max_rows} more — run `export.py --csv` for full list*"
+        if len(active) > max_rows else ""
+    )
+    return {
+        "name": f"🏘  Active listings  ({len(active)})",
+        "value": (table + suffix)[:1024],
+        "inline": False,
+    }
+
+
+def _stats_field(active: list) -> dict:
+    """Return an embed field with summary stats (price range + by-area counts)."""
     prices = [l["price"] for l in active]
-    if prices:
-        fields.append({
-            "name": "📊 Price range",
-            "value": (
-                f"£{min(prices):,} – £{max(prices):,}\n"
-                f"avg £{sum(prices) // len(prices):,}"
-            ),
-            "inline": True,
-        })
+    price_line = (
+        f"£{min(prices):,} – £{max(prices):,}  ·  avg £{sum(prices) // len(prices):,}"
+        if prices else "no data"
+    )
 
     area_counts: dict[str, int] = {}
     for l in active:
         area = l.get("area") or "Unknown"
         area_counts[area] = area_counts.get(area, 0) + 1
-    if area_counts:
-        fields.append({
-            "name": "📍 By area",
-            "value": "\n".join(
-                f"{a}: **{c}**"
-                for a, c in sorted(area_counts.items(), key=lambda x: -x[1])
-            ),
-            "inline": True,
-        })
-    return fields
+
+    area_lines = "  ·  ".join(
+        f"{a} {c}"
+        for a, c in sorted(area_counts.items(), key=lambda x: -x[1])
+    ) or "—"
+
+    return {
+        "name": "📊 Stats",
+        "value": f"**Price:** {price_line}\n**Areas:** {area_lines}",
+        "inline": False,
+    }
 
 
 def _post_webhook(url: str, payload: dict) -> None:
@@ -369,9 +445,9 @@ def export_discord(
 
     # ── Run-report mode (called from main.py after a scrape) ──────────────────
     if changes is not None:
-        new_listings  = changes.get("new", [])
-        price_drops   = changes.get("price_drops", [])   # list of (l, old, new)
-        total_seen    = changes.get("total_seen", len(active))
+        new_listings = changes.get("new", [])
+        price_drops  = changes.get("price_drops", [])   # list of (l, old, new)
+        total_seen   = changes.get("total_seen", len(active))
 
         n_new   = len(new_listings)
         n_drops = len(price_drops)
@@ -385,61 +461,24 @@ def export_discord(
             color = 0x7289DA   # discord blurple — quiet run
 
         desc = (
-            f"Scraped **{total_seen}** properties  ·  "
+            f"Scraped **{total_seen}** listings  ·  "
             f"**{n_new}** new  ·  "
             f"**{n_drops}** price {'drop' if n_drops == 1 else 'drops'}  ·  "
             f"**{len(active)}** active total"
         )
 
         fields: list[dict] = []
-
-        # New listings section (up to 5)
         if new_listings:
-            fields.append({
-                "name": f"🆕  New listings  ({n_new})",
-                "value": "─" * 30,
-                "inline": False,
-            })
-            for l in new_listings[:5]:
-                fields.append(_listing_field(l, prefix=""))
-            if n_new > 5:
-                fields.append({
-                    "name": "\u200b",
-                    "value": f"…and {n_new - 5} more new listings",
-                    "inline": False,
-                })
-
-        # Price drops section (up to 5)
+            fields.append(_new_listings_table(new_listings))
         if price_drops:
-            fields.append({
-                "name": f"💸  Price drops  ({n_drops})",
-                "value": "─" * 30,
-                "inline": False,
-            })
-            for l, old_price, new_price in price_drops[:5]:
-                drop = old_price - new_price
-                field = _listing_field(l, prefix="")
-                # Prepend was/now line
-                field["value"] = (
-                    f"~~£{old_price:,}~~  →  **£{new_price:,}**  *(↓ £{drop:,})*\n"
-                    + field["value"]
-                )
-                fields.append(field)
-            if n_drops > 5:
-                fields.append({
-                    "name": "\u200b",
-                    "value": f"…and {n_drops - 5} more price drops",
-                    "inline": False,
-                })
-
-        # Stats
-        fields.extend(_stats_fields(active))
+            fields.append(_price_drops_table(price_drops))
+        fields.append(_stats_field(active))
 
         # Clamp to Discord's 25-field limit
         fields = fields[:25]
 
         embeds = [{
-            "title": f"🏠 Property Tracker — South & SW London",
+            "title": "🏠 Property Tracker — South & SW London",
             "description": desc,
             "color": color,
             "fields": fields,
@@ -448,27 +487,11 @@ def export_discord(
 
     # ── Dashboard mode (manual CLI call — no changes context) ─────────────────
     else:
-        def _sort_key(l):
-            has_drop = (l.get("initial_price") or 0) > l["price"]
-            return (not has_drop, l.get("first_seen", ""))
-
-        top = sorted(active, key=_sort_key)[:10]
-        fields = _stats_fields(active)
-        for l in top:
-            fields.append(_listing_field(
-                l,
-                prefix="🔴 " if (l.get("initial_price") or 0) > l["price"] else "",
-            ))
-        fields = fields[:25]
-
-        footer_note = (
-            f"  ·  {len(active) - 10} more — run `export.py --csv` for full list"
-            if len(active) > 10 else ""
-        )
+        fields = [_dashboard_table(active), _stats_field(active)]
 
         embeds = [{
             "title": "🏠 Property Tracker — South & SW London",
-            "description": f"**{len(active)} active listings**{footer_note}",
+            "description": f"**{len(active)} active listings**",
             "color": 0x1E6EBE,
             "fields": fields,
             "footer": {"text": now_str},
