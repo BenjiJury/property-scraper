@@ -63,11 +63,13 @@ PRICE_DROP_THRESHOLD = 0
 # Uncomment the outcode entries below for finer-grained targeting.
 
 SEARCH_LOCATIONS = [
-    # Tooting must come before Wandsworth so that SW17 listings are labelled
-    # "Tooting" rather than "Wandsworth" (scraper keeps the first-seen area label).
-    # OUTCODE IDs for SW: SW[n] = 2513 + n (verified: SW4=2517, SW8=2521, SW9=2522).
-    {"name": "Tooting (SW17)",       "identifier": "OUTCODE^2530"},
     {"name": "Wandsworth",           "identifier": "REGION^93977"},
+    # ── Tooting (SW17) ────────────────────────────────────────────────────────
+    # SW17 is already included in the Wandsworth region above; listings will
+    # appear labelled "Wandsworth".  A separate OUTCODE^2530 entry was tried
+    # but that outcode has migrated to Rightmove's Next.js stack and cannot be
+    # scraped without a headless browser.
+    #
     # Lambeth (REGION^93799) and all its outcode pages have been migrated to
     # Rightmove's Next.js client-side architecture.  Listing data is fetched
     # by browser JavaScript via tokens we cannot replicate without a headless
@@ -81,16 +83,30 @@ SEARCH_LOCATIONS = [
     {"name": "Lewisham",             "identifier": "REGION^61413"},
     {"name": "Kingston upon Thames", "identifier": "REGION^93968"},
     {"name": "Richmond upon Thames", "identifier": "REGION^93937"},
-    # Teddington (TW11) is NOT covered by the Richmond region above (TW1/2/9/10 only).
-    # ID derived by lookup — verify with: python3 -c "from scraper import lookup_location;
-    # [print(r) for r in lookup_location('Teddington')]"
-    {"name": "Teddington (TW11)",    "identifier": "OUTCODE^2644"},
-    # OUTCODE IDs for SE: SE[n] = 2029 + n (verified: SE11=2040, SE21=2050,
-    # SE22=2051, SE24=2053 from live Rightmove URLs).
-    {"name": "Dulwich (SE21)",       "identifier": "OUTCODE^2050"},
-    {"name": "East Dulwich (SE22)",  "identifier": "OUTCODE^2051"},
-    {"name": "Bermondsey (SE1)",     "identifier": "OUTCODE^2030"},
-    {"name": "Bermondsey (SE16)",    "identifier": "OUTCODE^2045"},
+    # ── Teddington (TW11) ─────────────────────────────────────────────────────
+    # TW11 is NOT covered by Richmond upon Thames (REGION^93937 covers TW1/2/9/10 only).
+    # OUTCODE^2644 was tried but pointed to Devon — IDs are not assigned in
+    # postal-code order.  To find the correct ID, visit:
+    #   rightmove.co.uk → search "Teddington" → copy locationIdentifier from URL
+    # or run from ~/property-scraper:
+    #   python3 -c "import sys,sys; sys.path.insert(0,'property_tracker'); from scraper import lookup_location; [print(r) for r in lookup_location('Teddington')]"
+    # {"name": "Teddington (TW11)",    "identifier": "OUTCODE^????"},
+    #
+    # ── Dulwich ───────────────────────────────────────────────────────────────
+    # East Dulwich (SE22) is within Lewisham borough and is already covered by
+    # the Lewisham region above (listings labelled "Lewisham").
+    # Dulwich (SE21) spans Lewisham and Southwark; the Southwark portion is not
+    # covered.  OUTCODE^2050 was tried for SE21 but hits Next.js (same issue as
+    # Lambeth above).  To cover Southwark/SE21 add the Southwark REGION once
+    # you have the correct ID:
+    #   rightmove.co.uk → search "Southwark" → copy locationIdentifier from URL
+    # {"name": "Southwark",            "identifier": "REGION^?????"},
+    #
+    # ── Bermondsey (SE1 / SE16) ───────────────────────────────────────────────
+    # Both SE1 and SE16 outcodes have migrated to Rightmove's Next.js stack and
+    # cannot be scraped without a headless browser.  Bermondsey is in Southwark
+    # borough — once you have the Southwark REGION ID (see above), those
+    # listings will be covered automatically.
 ]
 
 # ── Request / scraping settings ────────────────────────────────────────────────
