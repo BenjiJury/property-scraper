@@ -58,8 +58,8 @@ SEARCH_LOCATIONS = [
     {"name": "Wandsworth",           "identifier": "REGION^93977"},
     {"name": "Lambeth",              "identifier": "REGION^93799"},
     {"name": "Lewisham",             "identifier": "REGION^61413"},
-    {"name": "Kingston upon Thames", "identifier": "REGION^93714"},
-    {"name": "Merton",               "identifier": "REGION^93888"},
+    {"name": "Kingston upon Thames", "identifier": "REGION^93968"},
+    {"name": "Merton",               "identifier": "REGION^61414"},
     {"name": "Richmond upon Thames", "identifier": "REGION^93937"},
     # Outcode-level alternatives (uncomment for tighter targeting):
     # {"name": "Dulwich (SE21)",     "identifier": "OUTCODE^2050"},

@@ -3,16 +3,24 @@ scraper.py — Fetches listings from Rightmove.
 
 How data is extracted
 ---------------------
-Rightmove exposes an internal JSON search API at /api/_search which
-returns structured listing data directly (no HTML parsing required).
-This replaced the older window.jsonModel approach after Rightmove
-migrated to a Next.js front-end.
+Rightmove is mid-migration from a server-rendered architecture to
+Next.js with client-side data fetching.  We use a two-strategy approach:
+
+  Strategy A (HTML extraction) — works for areas still on the old stack.
+    The search-results HTML page embeds listing data in a window.jsonModel
+    JS variable which _extract_json_model() pulls out via regex / BeautifulSoup.
+
+  Strategy B (API fallback) — used when Strategy A finds nothing.
+    Newer areas serve a Next.js shell page (no listing data in HTML); the
+    browser then calls /api/_search to fetch listings as JSON.  We replicate
+    this by fetching the HTML page first (which seeds the session with the
+    necessary cookies) and then calling /api/_search with those cookies.
 
 Pagination
 ----------
-The pagination.next field in the JSON gives the 0-based index of the
-next page (increments of 24).  We follow pages until there is no next
-index or we hit MAX_PAGES_PER_AREA.
+The pagination.next field gives the 0-based index of the next page
+(increments of 24).  We follow pages until there is no next index or
+we hit MAX_PAGES_PER_AREA.
 
 Freehold filtering
 ------------------
@@ -129,6 +137,32 @@ def _delay() -> None:
 
 
 # ── URL builder ────────────────────────────────────────────────────────────────
+
+def _api_search_url(location_identifier: str, index: int = 0) -> str:
+    """Build a URL for Rightmove's internal JSON search API (Next.js fallback)."""
+    params = {
+        "locationIdentifier":        location_identifier,
+        "numberOfPropertiesPerPage": 24,
+        "radius":                    "0.0",
+        "sortType":                  6,
+        "index":                     index,
+        "includeSSTC":               "false",
+        "viewType":                  "LIST",
+        "channel":                   "BUY",
+        "areaSizeUnit":              "sqft",
+        "currencyCode":              "GBP",
+        "isFetching":                "false",
+        "minBedrooms":               MIN_BEDROOMS,
+        "maxBedrooms":               MAX_BEDROOMS,
+        "minPrice":                  MIN_PRICE,
+        "maxPrice":                  MAX_PRICE,
+        "propertyTypes":             ",".join(PROPERTY_TYPES),
+        "mustHave":                  "",
+        "dontShow":                  "newHome,sharedOwnership,retirement",
+    }
+    # Keep literal '^' in locationIdentifier (urlencode produces %5E)
+    return f"{_BASE_URL}{_API_SEARCH}?{urlencode(params)}".replace("%5E", "^")
+
 
 def _search_url(location_identifier: str, index: int = 0) -> str:
     """Build a Rightmove search-results page URL."""
@@ -539,7 +573,25 @@ def _scrape_area(location: dict, session: requests.Session) -> list:
             logger.warning("%s — failed to fetch page at index %d; stopping.", name, page_index)
             break
 
+        # Detect stale identifier early — skip API fallback, it won't help either
+        if ("We couldn\u2019t find the place you were looking for" in html
+                or "We couldn't find the place you were looking for" in html):
+            logger.warning("%s — 'not found' page; identifier may be stale", name)
+            break
+
         data = _extract_json_model(html)
+        if not data:
+            # HTML extraction failed — page is probably a Next.js client-side
+            # shell (listings fetched by browser JS via /api/_search).  The HTML
+            # page visit above has seeded the session with the cookies the API
+            # needs; try the JSON endpoint now with those credentials.
+            logger.debug(
+                "%s — HTML extraction failed; trying /api/_search with session cookies",
+                name,
+            )
+            api_url = _api_search_url(identifier, page_index)
+            data = _fetch_json(api_url, session, referer=url)
+
         if not data:
             logger.warning("%s — no listing data at index %d; stopping.", name, page_index)
             break
