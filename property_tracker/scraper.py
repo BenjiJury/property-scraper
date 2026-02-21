@@ -3,14 +3,10 @@ scraper.py — Fetches listings from Rightmove.
 
 How data is extracted
 ---------------------
-Rightmove embeds all search-result data as a JSON blob assigned to
-`window.jsonModel` inside a <script> tag on every results page.
-We extract that JSON rather than parsing HTML elements, which is
-significantly more robust than CSS-selector scraping.
-
-If `window.jsonModel` is not found (e.g. Rightmove restructure their
-page), a second pass inspects every <script> tag for a JSON-shaped
-string containing a "properties" key.
+Rightmove exposes an internal JSON search API at /api/_search which
+returns structured listing data directly (no HTML parsing required).
+This replaced the older window.jsonModel approach after Rightmove
+migrated to a Next.js front-end.
 
 Pagination
 ----------
@@ -25,6 +21,11 @@ config.FILTER_FREEHOLD removes any listing whose tenure field is
 explicitly "leasehold"; listings with tenure "freehold" or "unknown"
 are kept.  The scraper also strips new-build / shared-ownership flags
 at the URL level with dontShow=newHome,sharedOwnership,retirement.
+
+Location identifier lookup
+--------------------------
+Use lookup_location('Area Name') to resolve a place name to its
+Rightmove REGION^ identifier via the typeahead API.
 """
 
 import json
@@ -54,8 +55,9 @@ from config import (
 logger = logging.getLogger(__name__)
 
 _BASE_URL    = "https://www.rightmove.co.uk"
-_SEARCH_PATH = "/property-for-sale/find.html"
-_TYPEAHEAD   = "https://api.rightmove.co.uk/api/typeAhead/uknoauth"
+_SEARCH_PATH = "/property-for-sale/find.html"   # kept for warm-up referer
+_API_SEARCH  = "/api/_search"
+_TYPEAHEAD   = "https://www.rightmove.co.uk/typeAhead/uknostreet"
 
 # ── Request headers ────────────────────────────────────────────────────────────
 # A pool of realistic browser User-Agent strings; one is chosen at random for
@@ -129,20 +131,28 @@ def _delay() -> None:
 # ── URL builder ────────────────────────────────────────────────────────────────
 
 def _search_url(location_identifier: str, index: int = 0) -> str:
+    """Build a URL for Rightmove's internal JSON search API."""
     params = {
-        "locationIdentifier": location_identifier,
-        "minBedrooms":        MIN_BEDROOMS,
-        "maxBedrooms":        MAX_BEDROOMS,
-        "minPrice":           MIN_PRICE,
-        "maxPrice":           MAX_PRICE,
-        "propertyTypes":      ",".join(PROPERTY_TYPES),
-        "mustHave":           "",
-        "dontShow":           "newHome,sharedOwnership,retirement",
-        "furnishTypes":       "",
-        "keywords":           "",
-        "index":              index,
+        "locationIdentifier":        location_identifier,
+        "numberOfPropertiesPerPage": 24,
+        "radius":                    "0.0",
+        "sortType":                  6,
+        "index":                     index,
+        "includeSSTC":               "false",
+        "viewType":                  "LIST",
+        "channel":                   "BUY",
+        "areaSizeUnit":              "sqft",
+        "currencyCode":              "GBP",
+        "isFetching":                "false",
+        "minBedrooms":               MIN_BEDROOMS,
+        "maxBedrooms":               MAX_BEDROOMS,
+        "minPrice":                  MIN_PRICE,
+        "maxPrice":                  MAX_PRICE,
+        "propertyTypes":             ",".join(PROPERTY_TYPES),
+        "mustHave":                  "",
+        "dontShow":                  "newHome,sharedOwnership,retirement",
     }
-    return f"{_BASE_URL}{_SEARCH_PATH}?{urlencode(params)}"
+    return f"{_BASE_URL}{_API_SEARCH}?{urlencode(params)}"
 
 
 # ── HTTP fetch ─────────────────────────────────────────────────────────────────
@@ -199,6 +209,59 @@ def _fetch(url: str, session: requests.Session, referer: str | None = None) -> s
     return None
 
 
+def _random_xhr_headers(referer: str | None = None) -> dict:
+    """Headers that mimic an XHR/fetch request from the Rightmove page."""
+    base = random.choice(_HEADERS_POOL)
+    return {
+        "User-Agent":         base["User-Agent"],
+        "Accept":             "application/json, text/plain, */*",
+        "Accept-Language":    "en-GB,en;q=0.9",
+        "Accept-Encoding":    "gzip, deflate, br",
+        "Referer":            referer or f"{_BASE_URL}/property-for-sale/",
+        "sec-ch-ua":          base.get("sec-ch-ua", ""),
+        "sec-ch-ua-mobile":   "?0",
+        "sec-ch-ua-platform": base.get("sec-ch-ua-platform", '"Windows"'),
+        "Sec-Fetch-Dest":     "empty",
+        "Sec-Fetch-Mode":     "cors",
+        "Sec-Fetch-Site":     "same-origin",
+        "Connection":         "keep-alive",
+    }
+
+
+def _fetch_json(url: str, session: requests.Session, referer: str | None = None) -> dict | None:
+    """
+    GET a JSON API endpoint and return the parsed response, or None on error.
+    Handles 429 with a back-off retry; treats 403/404 as hard stops.
+    """
+    for attempt in (1, 2):
+        try:
+            response = session.get(
+                url,
+                headers=_random_xhr_headers(referer=referer),
+                timeout=REQUEST_TIMEOUT,
+                allow_redirects=True,
+            )
+            if response.status_code == 429:
+                logger.warning("Rate-limited (429) on attempt %d — backing off 60 s", attempt)
+                time.sleep(60)
+                continue
+            if response.status_code in (403, 404):
+                logger.warning("HTTP %d fetching %s", response.status_code, url)
+                return None
+            response.raise_for_status()
+            return response.json()
+        except requests.ConnectionError as exc:
+            logger.error("Connection error fetching %s: %s", url, exc)
+            return None
+        except requests.Timeout:
+            logger.error("Timeout fetching %s", url)
+            return None
+        except (requests.RequestException, ValueError) as exc:
+            logger.error("Error fetching %s: %s", url, exc)
+            return None
+    return None
+
+
 # ── JSON extraction ────────────────────────────────────────────────────────────
 
 def _extract_json_model(html: str) -> dict | None:
@@ -226,6 +289,8 @@ def _extract_json_model(html: str) -> dict | None:
             except json.JSONDecodeError as exc:
                 logger.debug("Strategy-1 JSON decode failed: %s", exc)
 
+    soup = None  # parsed once and reused by strategies 2 and 3
+
     # Strategy 2: window.jsonModel — BeautifulSoup script tag iteration
     try:
         soup = BeautifulSoup(html, "html.parser")
@@ -247,7 +312,8 @@ def _extract_json_model(html: str) -> dict | None:
 
     # Strategy 3: Next.js __NEXT_DATA__ (Rightmove migrated to Next.js)
     try:
-        soup = BeautifulSoup(html, "html.parser") if "soup" not in dir() else soup
+        if soup is None:
+            soup = BeautifulSoup(html, "html.parser")
         next_tag = soup.find("script", {"id": "__NEXT_DATA__"})
         if next_tag and next_tag.string:
             next_data = json.loads(next_tag.string)
@@ -376,6 +442,16 @@ def _parse_property(raw: dict, area_name: str) -> dict | None:
 
 # ── Public helpers ─────────────────────────────────────────────────────────────
 
+def _tokenize_location(query: str) -> str:
+    """
+    Convert a place name to Rightmove's typeahead URL path format.
+    e.g. "Wandsworth" → "WA/ND/SW/OR/TH"
+         "Lewisham"   → "LE/WI/SH/AM"
+    """
+    clean = query.replace(" ", "").upper()
+    return "/".join(clean[i:i + 2] for i in range(0, len(clean), 2))
+
+
 def lookup_location(query: str) -> list:
     """
     Query Rightmove's typeahead API for a place name.
@@ -384,15 +460,10 @@ def lookup_location(query: str) -> list:
     Usage:
         python3 -c "from scraper import lookup_location; print(lookup_location('Wandsworth'))"
     """
+    url = f"{_TYPEAHEAD}/{_tokenize_location(query)}/"
     try:
-        params = {
-            "query":                query,
-            "numberOfSuggestions":  5,
-            "request_source":       "WWW",
-        }
         resp = requests.get(
-            _TYPEAHEAD,
-            params=params,
+            url,
             headers=_random_headers(),
             timeout=10,
         )
@@ -426,20 +497,19 @@ def _scrape_area(location: dict, session: requests.Session) -> list:
             _delay()
 
         url  = _search_url(identifier, page_index)
-        html = _fetch(url, session, referer=f"{_BASE_URL}/property-for-sale/")
+        data = _fetch_json(url, session, referer=f"{_BASE_URL}/property-for-sale/")
 
-        if not html:
-            logger.warning("%s — failed to fetch page at index %d; stopping.", name, page_index)
-            break
-
-        data = _extract_json_model(html)
         if not data:
-            logger.warning("%s — no JSON model at index %d; stopping.", name, page_index)
+            logger.warning("%s — failed to fetch data at index %d; stopping.", name, page_index)
             break
 
         properties = data.get("properties") or []
         if not properties:
-            logger.debug("%s — empty properties list at index %d", name, page_index)
+            if page_index == 0:
+                logger.warning(
+                    "%s — API returned no properties; response keys: %s",
+                    name, list(data.keys())[:15],
+                )
             break
 
         # Log total on first page only
