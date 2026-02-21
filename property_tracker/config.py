@@ -112,7 +112,7 @@ SHOW_REMOVED_LISTINGS = True   # Show de-listed properties (dimmed) in table
 
 # Discord: paste your webhook URL here (Server Settings → Integrations → Webhooks)
 # Leave empty ("") to disable Discord export.
-DISCORD_WEBHOOK_URL = ""
+DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1474878416619835613/7MSv7qIIGB27zqNvUaaVGrnSJHI0ZZ14PMOgJ3m0QdqAP1i0cOb2tXCVuW94GWxTOtD"
 
 # PDF and CSV output directory (defaults to the same folder as this file)
 EXPORT_DIR = BASE_DIR
