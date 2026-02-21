@@ -152,16 +152,22 @@ def _search_url(location_identifier: str, index: int = 0) -> str:
         "mustHave":                  "",
         "dontShow":                  "newHome,sharedOwnership,retirement",
     }
-    return f"{_BASE_URL}{_API_SEARCH}?{urlencode(params)}"
+    # Rightmove's API expects the literal '^' in locationIdentifier,
+    # not the percent-encoded %5E that urlencode produces.
+    return f"{_BASE_URL}{_API_SEARCH}?{urlencode(params)}".replace("%5E", "^")
 
 
 # ── HTTP fetch ─────────────────────────────────────────────────────────────────
 
 def _warm_up(session: requests.Session) -> None:
     """
-    Visit the Rightmove homepage to acquire session cookies before scraping.
-    Without this, Rightmove's bot detection often intercepts the first request.
+    Prime the session with cookies before hitting the JSON API.
+
+    Step 1 — homepage: establishes a session and picks up global cookies.
+    Step 2 — search results HTML page: sets the search-specific cookies
+              that the /api/_search endpoint checks for.
     """
+    # Step 1: homepage
     try:
         resp = session.get(
             _BASE_URL,
@@ -169,10 +175,30 @@ def _warm_up(session: requests.Session) -> None:
             timeout=REQUEST_TIMEOUT,
             allow_redirects=True,
         )
-        logger.debug("Warm-up request: HTTP %d", resp.status_code)
-        time.sleep(random.uniform(2, 4))
+        logger.debug("Warm-up homepage: HTTP %d", resp.status_code)
     except Exception as exc:
-        logger.warning("Warm-up request failed (continuing anyway): %s", exc)
+        logger.warning("Warm-up homepage failed (continuing): %s", exc)
+
+    time.sleep(random.uniform(3, 5))
+
+    # Step 2: a real search results page so we look like a genuine browser
+    warmup_search = (
+        f"{_BASE_URL}{_SEARCH_PATH}"
+        "?locationIdentifier=REGION^93799"
+        "&numberOfPropertiesPerPage=24&index=0&channel=BUY"
+    )
+    try:
+        resp = session.get(
+            warmup_search,
+            headers=_random_headers(),
+            timeout=REQUEST_TIMEOUT,
+            allow_redirects=True,
+        )
+        logger.debug("Warm-up search page: HTTP %d", resp.status_code)
+    except Exception as exc:
+        logger.warning("Warm-up search page failed (continuing): %s", exc)
+
+    time.sleep(random.uniform(3, 5))
 
 
 def _fetch(url: str, session: requests.Session, referer: str | None = None) -> str | None:
@@ -249,6 +275,21 @@ def _fetch_json(url: str, session: requests.Session, referer: str | None = None)
                 logger.warning("HTTP %d fetching %s", response.status_code, url)
                 return None
             response.raise_for_status()
+            body = response.text
+            if not body or not body.strip():
+                logger.warning(
+                    "Empty response body (HTTP %d) — bot detection likely; url=%s",
+                    response.status_code, url,
+                )
+                return None
+            if not body.lstrip().startswith("{"):
+                logger.warning(
+                    "Non-JSON response (HTTP %d, %d bytes): %.300s",
+                    response.status_code,
+                    len(body),
+                    body[:300].replace("\n", " "),
+                )
+                return None
             return response.json()
         except requests.ConnectionError as exc:
             logger.error("Connection error fetching %s: %s", url, exc)
