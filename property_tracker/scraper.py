@@ -240,6 +240,7 @@ def _extract_json_model(html: str) -> dict | None:
         logger.debug("BeautifulSoup parse error: %s", exc)
 
     logger.warning("Could not extract window.jsonModel from page")
+    logger.warning("Page snippet (first 500 chars): %s", html[:500].replace("\n", " "))
     return None
 
 
