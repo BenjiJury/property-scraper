@@ -64,55 +64,59 @@ _TYPEAHEAD   = "https://api.rightmove.co.uk/api/typeAhead/uknoauth"
 _HEADERS_POOL = [
     {
         "User-Agent": (
-            "Mozilla/5.0 (Linux; Android 14; Pixel 8) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/122.0.0.0 Mobile Safari/537.36"
-        ),
-        "Accept": (
-            "text/html,application/xhtml+xml,application/xml;"
-            "q=0.9,image/avif,image/webp,*/*;q=0.8"
-        ),
-        "Accept-Language": "en-GB,en;q=0.9",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Connection":      "keep-alive",
-        "Upgrade-Insecure-Requests": "1",
-        "Sec-Fetch-Dest":  "document",
-        "Sec-Fetch-Mode":  "navigate",
-        "Sec-Fetch-Site":  "none",
-    },
-    {
-        "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/122.0.0.0 Safari/537.36"
+            "Chrome/122.0.6261.112 Safari/537.36"
         ),
         "Accept": (
             "text/html,application/xhtml+xml,application/xml;"
-            "q=0.9,image/avif,image/webp,*/*;q=0.8"
+            "q=0.9,image/avif,image/webp,image/apng,*/*;"
+            "q=0.8,application/signed-exchange;v=b3;q=0.7"
         ),
-        "Accept-Language": "en-GB,en-US;q=0.9,en;q=0.8",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Connection":      "keep-alive",
+        "Accept-Language":           "en-GB,en;q=0.9",
+        "Accept-Encoding":           "gzip, deflate, br",
+        "Connection":                "keep-alive",
         "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest":            "document",
+        "Sec-Fetch-Mode":            "navigate",
+        "Sec-Fetch-Site":            "none",
+        "Sec-Fetch-User":            "?1",
+        "sec-ch-ua":                 '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
+        "sec-ch-ua-mobile":          "?0",
+        "sec-ch-ua-platform":        '"Windows"',
     },
     {
         "User-Agent": (
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
             "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/121.0.0.0 Safari/537.36"
+            "Chrome/122.0.6261.112 Safari/537.36"
         ),
         "Accept": (
-            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+            "text/html,application/xhtml+xml,application/xml;"
+            "q=0.9,image/avif,image/webp,image/apng,*/*;"
+            "q=0.8,application/signed-exchange;v=b3;q=0.7"
         ),
-        "Accept-Language": "en-GB,en;q=0.5",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Connection":      "keep-alive",
+        "Accept-Language":           "en-GB,en-US;q=0.9,en;q=0.8",
+        "Accept-Encoding":           "gzip, deflate, br",
+        "Connection":                "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest":            "document",
+        "Sec-Fetch-Mode":            "navigate",
+        "Sec-Fetch-Site":            "none",
+        "Sec-Fetch-User":            "?1",
+        "sec-ch-ua":                 '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
+        "sec-ch-ua-mobile":          "?0",
+        "sec-ch-ua-platform":        '"macOS"',
     },
 ]
 
 
-def _random_headers() -> dict:
-    return dict(random.choice(_HEADERS_POOL))
+def _random_headers(referer: str | None = None) -> dict:
+    headers = dict(random.choice(_HEADERS_POOL))
+    if referer:
+        headers["Referer"] = referer
+        headers["Sec-Fetch-Site"] = "same-origin"
+    return headers
 
 
 def _delay() -> None:
@@ -143,7 +147,25 @@ def _search_url(location_identifier: str, index: int = 0) -> str:
 
 # ── HTTP fetch ─────────────────────────────────────────────────────────────────
 
-def _fetch(url: str, session: requests.Session) -> str | None:
+def _warm_up(session: requests.Session) -> None:
+    """
+    Visit the Rightmove homepage to acquire session cookies before scraping.
+    Without this, Rightmove's bot detection often intercepts the first request.
+    """
+    try:
+        resp = session.get(
+            _BASE_URL,
+            headers=_random_headers(),
+            timeout=REQUEST_TIMEOUT,
+            allow_redirects=True,
+        )
+        logger.debug("Warm-up request: HTTP %d", resp.status_code)
+        time.sleep(random.uniform(2, 4))
+    except Exception as exc:
+        logger.warning("Warm-up request failed (continuing anyway): %s", exc)
+
+
+def _fetch(url: str, session: requests.Session, referer: str | None = None) -> str | None:
     """
     GET a URL and return the response text, or None on any error.
     Handles 429 / 403 with a longer back-off before giving up.
@@ -152,7 +174,7 @@ def _fetch(url: str, session: requests.Session) -> str | None:
         try:
             response = session.get(
                 url,
-                headers=_random_headers(),
+                headers=_random_headers(referer=referer),
                 timeout=REQUEST_TIMEOUT,
                 allow_redirects=True,
             )
@@ -369,7 +391,7 @@ def _scrape_area(location: dict, session: requests.Session) -> list:
             _delay()
 
         url  = _search_url(identifier, page_index)
-        html = _fetch(url, session)
+        html = _fetch(url, session, referer=f"{_BASE_URL}/property-for-sale/")
 
         if not html:
             logger.warning("%s — failed to fetch page at index %d; stopping.", name, page_index)
@@ -433,6 +455,8 @@ def scrape_all() -> list:
     """
     session  = requests.Session()
     seen: dict[str, dict] = {}
+
+    _warm_up(session)
 
     for i, location in enumerate(SEARCH_LOCATIONS):
         if i > 0:
