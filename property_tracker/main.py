@@ -1,0 +1,93 @@
+"""
+main.py — Orchestrates the full scrape → track → notify pipeline.
+
+Intended to be called by crond every 2 hours:
+    0 */2 * * * cd ~/property_tracker && python3 main.py >> tracker.log 2>&1
+
+Exit codes
+----------
+  0  — completed (even if no new listings found)
+  1  — fatal error (DB init failed, scrape returned nothing recoverable)
+
+All errors are logged to LOG_PATH (config.py) so cron failures are
+self-documenting without flooding the terminal.
+"""
+
+import logging
+import sys
+from datetime import datetime
+
+# ── Logging setup (must happen before any module imports that use logging) ─────
+
+def _setup_logging() -> None:
+    from config import LOG_PATH
+
+    fmt = "%(asctime)s [%(levelname)-8s] %(name)s: %(message)s"
+    handlers = [
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler(LOG_PATH, encoding="utf-8"),
+    ]
+    logging.basicConfig(level=logging.INFO, format=fmt, handlers=handlers)
+
+
+# ── Pipeline ───────────────────────────────────────────────────────────────────
+
+def main() -> None:
+    _setup_logging()
+    logger = logging.getLogger("main")
+
+    logger.info("=" * 60)
+    logger.info("Run started  %s UTC", datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"))
+
+    # 1 — Initialise database
+    from database import init_db
+    try:
+        init_db()
+    except Exception as exc:
+        logger.critical("Database initialisation failed: %s", exc)
+        sys.exit(1)
+
+    # 2 — Scrape Rightmove
+    from scraper import scrape_all
+    try:
+        listings = scrape_all()
+    except Exception as exc:
+        logger.critical("Scraper raised an unhandled exception: %s", exc)
+        sys.exit(1)
+
+    if not listings:
+        logger.warning(
+            "Scraper returned zero listings.  "
+            "Check SEARCH_LOCATIONS identifiers in config.py and your "
+            "network connection."
+        )
+        sys.exit(0)
+
+    # 3 — Detect changes (new listings / price drops)
+    from tracker import process_listings
+    try:
+        changes = process_listings(listings)
+    except Exception as exc:
+        logger.critical("Tracker raised an unhandled exception: %s", exc)
+        sys.exit(1)
+
+    # 4 — Send Termux notifications
+    from notifier import notify_new_listings, notify_price_drops
+    try:
+        notify_new_listings(changes["new"])
+        notify_price_drops(changes["price_drops"])
+    except Exception as exc:
+        # Notification failures are non-fatal
+        logger.error("Notification error: %s", exc)
+
+    logger.info(
+        "Run complete — %d new | %d price drops | %d total",
+        len(changes["new"]),
+        len(changes["price_drops"]),
+        changes["total_seen"],
+    )
+    logger.info("=" * 60)
+
+
+if __name__ == "__main__":
+    main()
