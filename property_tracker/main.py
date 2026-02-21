@@ -1,8 +1,15 @@
 """
-main.py — Orchestrates the full scrape → track → notify pipeline.
+main.py — Orchestrates the full scrape → track → notify → export pipeline.
 
-Intended to be called by crond every 2 hours:
-    0 */2 * * * cd ~/property_tracker && python3 main.py >> tracker.log 2>&1
+Runs twice a day via crond (8 am and 6 pm device-local time).
+Set up once with:
+
+    crontab -e
+
+Then add these two lines (adjust paths to match your Termux home):
+
+    0 8  * * * cd ~/property-scraper/property_tracker && python3 main.py >> tracker.log 2>&1
+    0 18 * * * cd ~/property-scraper/property_tracker && python3 main.py >> tracker.log 2>&1
 
 Exit codes
 ----------
@@ -79,6 +86,15 @@ def main() -> None:
     except Exception as exc:
         # Notification failures are non-fatal
         logger.error("Notification error: %s", exc)
+
+    # 5 — Post Discord run report
+    from export import export_discord
+    try:
+        export_discord(changes=changes)
+        logger.info("Discord report sent")
+    except Exception as exc:
+        # Discord failures are non-fatal
+        logger.error("Discord export error: %s", exc)
 
     logger.info(
         "Run complete — %d new | %d price drops | %d total",

@@ -281,14 +281,81 @@ def export_pdf(path: str | None = None) -> str:
 
 # ── Discord export ─────────────────────────────────────────────────────────────
 
-def export_discord(webhook_url: str | None = None) -> None:
+def _listing_field(l: dict, *, prefix: str = "") -> dict:
+    """Return a single Discord embed field dict for one listing."""
+    change   = _price_change(l["price"], l.get("initial_price"))
+    dom      = _days_on_market(l.get("first_seen", ""))
+    beds     = l.get("bedrooms") or "?"
+    area     = l.get("area", "")
+    addr     = l.get("address", "Unknown")
+    url_link = l.get("listing_url", "")
+
+    name = f"{prefix}£{l['price']:,}  ·  {beds}bed  ·  {area}"
+    addr_md = f"[{addr}]({url_link})" if url_link else addr
+    value_parts = [f"**{addr_md}**"]
+    if change != "—":
+        value_parts.append(f"Price change: {change}")
+    value_parts.append(f"DOM: {dom}d  ·  First seen: {_fmt_date(l.get('first_seen', ''))}")
+    return {"name": name, "value": "\n".join(value_parts), "inline": False}
+
+
+def _stats_fields(active: list) -> list[dict]:
+    """Return price-range and by-area embed fields."""
+    fields = []
+    prices = [l["price"] for l in active]
+    if prices:
+        fields.append({
+            "name": "📊 Price range",
+            "value": (
+                f"£{min(prices):,} – £{max(prices):,}\n"
+                f"avg £{sum(prices) // len(prices):,}"
+            ),
+            "inline": True,
+        })
+
+    area_counts: dict[str, int] = {}
+    for l in active:
+        area = l.get("area") or "Unknown"
+        area_counts[area] = area_counts.get(area, 0) + 1
+    if area_counts:
+        fields.append({
+            "name": "📍 By area",
+            "value": "\n".join(
+                f"{a}: **{c}**"
+                for a, c in sorted(area_counts.items(), key=lambda x: -x[1])
+            ),
+            "inline": True,
+        })
+    return fields
+
+
+def _post_webhook(url: str, payload: dict) -> None:
+    resp = requests.post(
+        url,
+        data=json.dumps(payload),
+        headers={"Content-Type": "application/json"},
+        timeout=15,
+    )
+    resp.raise_for_status()
+
+
+def export_discord(
+    webhook_url: str | None = None,
+    changes: dict | None = None,
+) -> None:
     """
-    Post a summary of active listings to a Discord channel via webhook.
+    Post to a Discord channel via webhook.
 
     Parameters
     ----------
     webhook_url : str, optional
         Overrides ``DISCORD_WEBHOOK_URL`` from config.
+    changes : dict, optional
+        The dict returned by ``tracker.process_listings()``, containing keys
+        ``new`` (list of listing dicts), ``price_drops`` (list of
+        (listing, old_price, new_price) tuples), and ``total_seen`` (int).
+        When provided the message is a "run report" showing what changed this
+        scrape.  When omitted the message shows the full dashboard.
     """
     url = webhook_url or DISCORD_WEBHOOK_URL
     if not url:
@@ -297,94 +364,117 @@ def export_discord(webhook_url: str | None = None) -> None:
             "Set DISCORD_WEBHOOK_URL in config.py or pass it as an argument."
         )
 
-    listings = get_all_listings(include_removed=False)
-    active   = listings  # include_removed=False returns only active
+    active = get_all_listings(include_removed=False)
+    now_str = _now_utc().strftime("%d %b %Y %H:%M") + " UTC"
 
-    prices = [l["price"] for l in active]
-    area_counts: dict[str, int] = {}
-    for l in active:
-        area = l.get("area") or "Unknown"
-        area_counts[area] = area_counts.get(area, 0) + 1
+    # ── Run-report mode (called from main.py after a scrape) ──────────────────
+    if changes is not None:
+        new_listings  = changes.get("new", [])
+        price_drops   = changes.get("price_drops", [])   # list of (l, old, new)
+        total_seen    = changes.get("total_seen", len(active))
 
-    # ── Summary embed ──────────────────────────────────────────────────────────
-    summary_fields = []
-    if prices:
-        summary_fields.append({
-            "name": "Price range",
-            "value": f"£{min(prices):,} – £{max(prices):,}\navg £{sum(prices)//len(prices):,}",
-            "inline": True,
-        })
-    if area_counts:
-        area_lines = "\n".join(
-            f"{area}: **{count}**"
-            for area, count in sorted(area_counts.items(), key=lambda x: -x[1])
+        n_new   = len(new_listings)
+        n_drops = len(price_drops)
+
+        # Colour: red if drops, green if new only, grey if nothing changed
+        if n_drops:
+            color = 0xCC2200   # red
+        elif n_new:
+            color = 0x00AA55   # green
+        else:
+            color = 0x7289DA   # discord blurple — quiet run
+
+        desc = (
+            f"Scraped **{total_seen}** properties  ·  "
+            f"**{n_new}** new  ·  "
+            f"**{n_drops}** price {'drop' if n_drops == 1 else 'drops'}  ·  "
+            f"**{len(active)}** active total"
         )
-        summary_fields.append({
-            "name": "By area",
-            "value": area_lines,
-            "inline": True,
-        })
 
-    # ── Top listings (price drops first, then newest) ──────────────────────────
-    def _sort_key(l):
-        has_drop = (l.get("initial_price") or 0) > l["price"]
-        return (not has_drop, l.get("first_seen", ""))
+        fields: list[dict] = []
 
-    sorted_listings = sorted(active, key=_sort_key, reverse=False)[:10]
+        # New listings section (up to 5)
+        if new_listings:
+            fields.append({
+                "name": f"🆕  New listings  ({n_new})",
+                "value": "─" * 30,
+                "inline": False,
+            })
+            for l in new_listings[:5]:
+                fields.append(_listing_field(l, prefix=""))
+            if n_new > 5:
+                fields.append({
+                    "name": "\u200b",
+                    "value": f"…and {n_new - 5} more new listings",
+                    "inline": False,
+                })
 
-    listing_fields = []
-    for l in sorted_listings:
-        change = _price_change(l["price"], l.get("initial_price"))
-        dom    = _days_on_market(l.get("first_seen", ""))
-        beds   = l.get("bedrooms") or "?"
-        addr   = l.get("address", "Unknown")
-        area   = l.get("area", "")
-        url_link = l.get("listing_url", "")
+        # Price drops section (up to 5)
+        if price_drops:
+            fields.append({
+                "name": f"💸  Price drops  ({n_drops})",
+                "value": "─" * 30,
+                "inline": False,
+            })
+            for l, old_price, new_price in price_drops[:5]:
+                drop = old_price - new_price
+                field = _listing_field(l, prefix="")
+                # Prepend was/now line
+                field["value"] = (
+                    f"~~£{old_price:,}~~  →  **£{new_price:,}**  *(↓ £{drop:,})*\n"
+                    + field["value"]
+                )
+                fields.append(field)
+            if n_drops > 5:
+                fields.append({
+                    "name": "\u200b",
+                    "value": f"…and {n_drops - 5} more price drops",
+                    "inline": False,
+                })
 
-        name = f"{'🔴 ' if '↓' in change else ''}£{l['price']:,}  ·  {beds}bed  ·  {area}"
-        value_parts = [f"**[{addr}]({url_link})**" if url_link else f"**{addr}**"]
-        if change != "—":
-            value_parts.append(f"Price change: {change}")
-        value_parts.append(f"DOM: {dom}d  ·  First seen: {_fmt_date(l.get('first_seen',''))}")
+        # Stats
+        fields.extend(_stats_fields(active))
 
-        listing_fields.append({
-            "name": name,
-            "value": "\n".join(value_parts),
-            "inline": False,
-        })
+        # Clamp to Discord's 25-field limit
+        fields = fields[:25]
 
-    # Clamp to Discord's 25-field limit
-    all_fields = summary_fields + listing_fields
-    if len(all_fields) > 25:
-        all_fields = all_fields[:25]
+        embeds = [{
+            "title": f"🏠 Property Tracker — South & SW London",
+            "description": desc,
+            "color": color,
+            "fields": fields,
+            "footer": {"text": now_str},
+        }]
 
-    footer_note = ""
-    if len(active) > 10:
-        footer_note = f"  ·  {len(active) - 10} more not shown — run --csv for full list"
+    # ── Dashboard mode (manual CLI call — no changes context) ─────────────────
+    else:
+        def _sort_key(l):
+            has_drop = (l.get("initial_price") or 0) > l["price"]
+            return (not has_drop, l.get("first_seen", ""))
 
-    payload = {
-        "embeds": [
-            {
-                "title": "🏠 Property Tracker — South & SW London",
-                "description": (
-                    f"**{len(active)} active listings**{footer_note}"
-                ),
-                "color": 0x1E6EBE,   # blue
-                "fields": all_fields,
-                "footer": {
-                    "text": f"Updated {_now_utc().strftime('%d %b %Y %H:%M')} UTC"
-                },
-            }
-        ]
-    }
+        top = sorted(active, key=_sort_key)[:10]
+        fields = _stats_fields(active)
+        for l in top:
+            fields.append(_listing_field(
+                l,
+                prefix="🔴 " if (l.get("initial_price") or 0) > l["price"] else "",
+            ))
+        fields = fields[:25]
 
-    resp = requests.post(
-        url,
-        data=json.dumps(payload),
-        headers={"Content-Type": "application/json"},
-        timeout=15,
-    )
-    resp.raise_for_status()
+        footer_note = (
+            f"  ·  {len(active) - 10} more — run `export.py --csv` for full list"
+            if len(active) > 10 else ""
+        )
+
+        embeds = [{
+            "title": "🏠 Property Tracker — South & SW London",
+            "description": f"**{len(active)} active listings**{footer_note}",
+            "color": 0x1E6EBE,
+            "fields": fields,
+            "footer": {"text": now_str},
+        }]
+
+    _post_webhook(url, {"embeds": embeds})
 
 
 # ── CLI ────────────────────────────────────────────────────────────────────────
