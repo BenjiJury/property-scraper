@@ -1,68 +1,73 @@
 """
-notifier.py — Sends Android notifications via Termux:API.
+notifier.py — Push notifications with pluggable backends.
 
-Requirements
-------------
-  1. Termux:API app installed from F-Droid.
-  2. termux-api package:  pkg install termux-api
-  3. TERMUX_API_AVAILABLE = True in config.py
+Backends
+--------
+ntfy   (default / recommended for Pi)
+    Sends an HTTP POST to an ntfy topic.  Run ntfy on the Pi itself and install
+    the ntfy Android app to receive notifications on your phone.
+    Configure NTFY_URL and NOTIFICATION_BACKEND = "ntfy" in config.py.
 
-Notification IDs
-----------------
-  NOTIFICATION_ID_NEW  (1001) — new listing alert
-  NOTIFICATION_ID_DROP (1002) — price reduction alert
+termux (Android / Termux only)
+    Sends via the termux-notification CLI.  Requires Termux:API to be installed.
+    Configure NOTIFICATION_BACKEND = "termux" in config.py.
 
-Both IDs are stable so that Android replaces (rather than stacks)
-the previous notification of each type on every run.
-
-Testing without Termux
-----------------------
-Set TERMUX_API_AVAILABLE = False in config.py.  The module will log
-what it would have sent without calling termux-notification.
+none
+    Disables push notifications entirely.  Discord reports still run.
+    Set NOTIFICATION_BACKEND = "none" in config.py.
 """
 
 import logging
 import subprocess
 
+import requests
+
 from config import (
+    NOTIFICATION_BACKEND,
     NOTIFICATION_ID_DROP,
     NOTIFICATION_ID_NEW,
     NOTIFICATION_ID_RISE,
     NOTIFICATION_ID_STALE,
-    TERMUX_API_AVAILABLE,
+    NTFY_URL,
 )
 
 logger = logging.getLogger(__name__)
 
 
-# ── Internal send ──────────────────────────────────────────────────────────────
+# ── Backend implementations ────────────────────────────────────────────────────
 
-def _send(title: str, content: str, notification_id: int) -> bool:
-    """
-    Call `termux-notification` in a subprocess.
-    Returns True on success, False on any error.
-    """
-    if not TERMUX_API_AVAILABLE:
-        logger.debug(
-            "Notifications disabled — would send: [%s] %s", title, content
+def _send_ntfy(title: str, content: str) -> bool:
+    """POST a notification to an ntfy topic via HTTP."""
+    try:
+        resp = requests.post(
+            NTFY_URL,
+            data=content.encode("utf-8"),
+            headers={
+                "Title":    title,
+                "Priority": "high",
+                "Tags":     "house",
+            },
+            timeout=10,
         )
+        resp.raise_for_status()
+        return True
+    except Exception as exc:
+        logger.error("ntfy notification failed (%s): %s", NTFY_URL, exc)
         return False
 
+
+def _send_termux(title: str, content: str, notification_id: int) -> bool:
+    """Send a notification via termux-notification (Android / Termux only)."""
     cmd = [
         "termux-notification",
-        "--title",    title,
-        "--content",  content,
-        "--id",       str(notification_id),
-        "--priority", "high",
-        "--led-color", "FF4500",     # orange-red LED
-        "--vibrate",  "0,250,100,250",
+        "--title",     title,
+        "--content",   content,
+        "--id",        str(notification_id),
+        "--priority",  "high",
+        "--led-color", "FF4500",
+        "--vibrate",   "0,250,100,250",
     ]
-
     try:
-        # Run in a detached session so the IPC handshake with the Termux:API
-        # service doesn't block our process.  We wait up to 10 s for a quick
-        # result; if it's still running after that the notification is being
-        # delivered in the background and we move on.
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.DEVNULL,
@@ -72,32 +77,37 @@ def _send(title: str, content: str, notification_id: int) -> bool:
         try:
             proc.wait(timeout=10)
             if proc.returncode != 0:
-                logger.error(
-                    "termux-notification returned %d", proc.returncode
-                )
+                logger.error("termux-notification returned %d", proc.returncode)
                 return False
         except subprocess.TimeoutExpired:
             logger.debug("termux-notification IPC in progress (background)")
         return True
-
     except FileNotFoundError:
         logger.error(
-            "termux-notification not found.  "
+            "termux-notification not found. "
             "Run: pkg install termux-api  and install the Termux:API app."
         )
         return False
     except Exception as exc:
-        logger.error("Unexpected notification error: %s", exc)
+        logger.error("Unexpected termux notification error: %s", exc)
+        return False
+
+
+def _send(title: str, content: str, notification_id: int) -> bool:
+    """Dispatch a notification via the configured backend."""
+    if NOTIFICATION_BACKEND == "ntfy":
+        return _send_ntfy(title, content)
+    elif NOTIFICATION_BACKEND == "termux":
+        return _send_termux(title, content, notification_id)
+    else:
+        logger.debug("Notifications disabled — would send: [%s] %s", title, content)
         return False
 
 
 # ── Public API ─────────────────────────────────────────────────────────────────
 
 def notify_new_listings(new_listings: list) -> None:
-    """
-    Send one grouped notification for all new listings found this run.
-    If there is exactly one new listing, include its full details.
-    """
+    """Send one grouped notification for all new listings found this run."""
     if not new_listings:
         return
 
@@ -125,10 +135,7 @@ def notify_new_listings(new_listings: list) -> None:
 
 
 def notify_price_drops(price_drops: list) -> None:
-    """
-    Send one grouped notification for all price reductions found this run.
-    If there is exactly one drop, include full detail.
-    """
+    """Send one grouped notification for all price reductions found this run."""
     if not price_drops:
         return
 
@@ -155,9 +162,7 @@ def notify_price_drops(price_drops: list) -> None:
 
 
 def notify_price_rises(price_rises: list) -> None:
-    """
-    Send one grouped notification for all price increases found this run.
-    """
+    """Send one grouped notification for all price increases found this run."""
     if not price_rises:
         return
 
@@ -186,7 +191,7 @@ def notify_price_rises(price_rises: list) -> None:
 def notify_stale_listings(newly_stale: list) -> None:
     """
     Send one notification for listings that have just crossed the stale
-    threshold (i.e. no price change for STALE_LISTING_DAYS days).
+    threshold (no price change for STALE_LISTING_DAYS days).
     """
     if not newly_stale:
         return
@@ -194,8 +199,8 @@ def notify_stale_listings(newly_stale: list) -> None:
     count = len(newly_stale)
 
     if count == 1:
-        lst  = newly_stale[0]
-        dom  = lst.get("days_on_market", "?")
+        lst     = newly_stale[0]
+        dom     = lst.get("days_on_market", "?")
         title   = "Stale listing"
         content = (
             f"{lst['address']}\n"

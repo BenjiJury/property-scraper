@@ -1,0 +1,14 @@
+[Unit]
+Description=Property Tracker — scrape at 08:00 and 18:00 daily
+Requires=property-tracker.service
+
+[Timer]
+# Runs at 08:00 and 18:00 in the Pi's local timezone every day.
+# Persistent=true means if the Pi was off at a scheduled time it will
+# catch up and run once on the next boot (within 1 minute).
+OnCalendar=*-*-* 08:00:00
+OnCalendar=*-*-* 18:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

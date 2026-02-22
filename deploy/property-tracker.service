@@ -1,0 +1,12 @@
+[Unit]
+Description=Property Tracker — Rightmove scraper and notifier
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User={USER}
+ExecStart={REPO_DIR}/deploy/run.sh
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=property-tracker

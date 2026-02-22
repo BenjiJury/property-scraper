@@ -106,15 +106,28 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH  = os.path.join(BASE_DIR, "properties.db")
 LOG_PATH = os.path.join(BASE_DIR, "tracker.log")
 
-# ── Termux notification settings ──────────────────────────────────────────────
+# ── Push notification settings ─────────────────────────────────────────────────
 
-# Set to False to disable notifications (useful for testing on desktop)
-TERMUX_API_AVAILABLE = True
+# Which backend to use for push notifications.
+#   "ntfy"   — HTTP push via ntfy (recommended for Pi / any Linux host).
+#              Self-host ntfy on the Pi, then install the ntfy Android app
+#              and subscribe to your topic.
+#   "termux" — Android push via termux-notification (Termux on Android only).
+#   "none"   — disable push notifications (Discord reports are still sent).
+NOTIFICATION_BACKEND = "ntfy"
 
-NOTIFICATION_ID_NEW   = 1001  # Android notification ID for new listings
-NOTIFICATION_ID_DROP  = 1002  # Android notification ID for price drops
-NOTIFICATION_ID_RISE  = 1003  # Android notification ID for price rises
-NOTIFICATION_ID_STALE = 1004  # Android notification ID for newly-stale listings
+# ntfy topic URL. Make the topic name private (hard to guess) so strangers
+# cannot subscribe to your property alerts.
+#   Self-hosted on Pi:  "http://localhost/property-tracker-abc123"
+#   ntfy.sh cloud:      "https://ntfy.sh/your-secret-topic-name"
+NTFY_URL = "http://localhost/property-tracker"
+
+# Notification IDs — used by the Termux backend only (replaces instead of
+# stacking notifications of the same type on Android).
+NOTIFICATION_ID_NEW   = 1001
+NOTIFICATION_ID_DROP  = 1002
+NOTIFICATION_ID_RISE  = 1003
+NOTIFICATION_ID_STALE = 1004
 
 # ── Dashboard display settings ────────────────────────────────────────────────
 
