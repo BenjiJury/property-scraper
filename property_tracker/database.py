@@ -219,7 +219,8 @@ def get_all_listings(include_removed: bool = True) -> list:
     query = f"""
         SELECT
             l.*,
-            ph_first.price AS initial_price
+            ph_first.price  AS initial_price,
+            ph_count.n      AS price_history_count
         FROM listings l
         LEFT JOIN (
             SELECT listing_id, price
@@ -228,6 +229,11 @@ def get_all_listings(include_removed: bool = True) -> list:
                 SELECT MIN(id) FROM price_history GROUP BY listing_id
             )
         ) ph_first ON ph_first.listing_id = l.listing_id
+        LEFT JOIN (
+            SELECT listing_id, COUNT(*) AS n
+            FROM price_history
+            GROUP BY listing_id
+        ) ph_count ON ph_count.listing_id = l.listing_id
         {status_filter}
         ORDER BY
             CASE l.status WHEN 'active' THEN 0 ELSE 1 END ASC,

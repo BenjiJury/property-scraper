@@ -39,7 +39,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import requests
 
-from config import DISCORD_WEBHOOK_URL, EXPORT_DIR
+from config import CSV_PATH, DISCORD_WEBHOOK_URL, EXPORT_DIR, STALE_LISTING_DAYS
 from database import get_all_listings, get_watchlist_listings
 
 
@@ -76,48 +76,123 @@ def _fmt_date(iso_str: str) -> str:
 
 # ── CSV export ─────────────────────────────────────────────────────────────────
 
+# Column order is intentional: identity → state → price history → time → flags → derived.
 CSV_COLUMNS = [
-    "address", "area", "price", "price_change", "bedrooms",
-    "property_type", "tenure", "days_on_market", "first_seen",
-    "listing_date", "status", "listing_url",
+    # ── Identity ────────────────────────────────────────────────────────────
+    "listing_id",           # Rightmove numeric property ID
+    "address",
+    "area",                 # Search region (Wandsworth, Lewisham, …)
+    "listing_url",          # Direct Rightmove link
+
+    # ── Current state ───────────────────────────────────────────────────────
+    "status",               # active | removed
+    "price",                # Current asking price (£)
+    "bedrooms",
+    "bathrooms",
+    "property_type",        # detached | semi-detached | terraced
+    "tenure",               # freehold | leasehold | unknown
+
+    # ── Price history ───────────────────────────────────────────────────────
+    "initial_price",        # First recorded asking price (£)
+    "total_reduction_gbp",  # initial_price − price  (positive = reduced)
+    "total_reduction_pct",  # % change from initial (negative = risen)
+    "price_change_label",   # e.g. "↓ £25,000" or "—"
+    "price_history_count",  # Number of distinct prices recorded
+
+    # ── Time ────────────────────────────────────────────────────────────────
+    "days_on_market",       # Days since first_seen (integer)
+    "first_seen",           # DD MMM YYYY
+    "last_seen",            # DD MMM YYYY — last date seen active
+    "listing_date",         # Rightmove's own listing date string
+
+    # ── Analysis flags ──────────────────────────────────────────────────────
+    "on_watchlist",         # TRUE | FALSE
+    "is_stale",             # TRUE | FALSE — active 60+ days, no price change
+
+    # ── Derived ─────────────────────────────────────────────────────────────
+    "price_per_bedroom",    # price ÷ bedrooms (blank if beds unknown)
 ]
+
+
+def _csv_row(l: dict) -> dict:
+    """Build a CSV row dict from a listing record."""
+    price   = l["price"]
+    initial = l.get("initial_price") or price
+    beds    = l.get("bedrooms")
+    dom     = _days_on_market(l.get("first_seen", ""))
+
+    reduction_gbp = initial - price
+    reduction_pct = round(reduction_gbp / initial * 100, 1) if initial else 0.0
+
+    is_stale = (
+        l.get("status") == "active"
+        and price == initial
+        and dom >= STALE_LISTING_DAYS
+    )
+
+    return {
+        "listing_id":          l.get("listing_id", ""),
+        "address":             l.get("address", ""),
+        "area":                l.get("area", ""),
+        "listing_url":         l.get("listing_url", ""),
+        "status":              l.get("status", ""),
+        "price":               price,
+        "bedrooms":            beds if beds is not None else "",
+        "bathrooms":           l.get("bathrooms") if l.get("bathrooms") is not None else "",
+        "property_type":       l.get("property_type", ""),
+        "tenure":              l.get("tenure", ""),
+        "initial_price":       initial,
+        "total_reduction_gbp": reduction_gbp,
+        "total_reduction_pct": reduction_pct,
+        "price_change_label":  _price_change(price, l.get("initial_price")),
+        "price_history_count": l.get("price_history_count") or 1,
+        "days_on_market":      dom,
+        "first_seen":          _fmt_date(l.get("first_seen", "")),
+        "last_seen":           _fmt_date(l.get("last_seen", "")),
+        "listing_date":        l.get("listing_date", ""),
+        "on_watchlist":        "TRUE" if l.get("watchlist") else "FALSE",
+        "is_stale":            "TRUE" if is_stale else "FALSE",
+        "price_per_bedroom":   round(price / beds) if beds else "",
+    }
 
 
 def export_csv(path: str | None = None) -> str:
     """
-    Write all listings to a CSV file and return the file path.
+    Write all listings (active + removed) to a dated CSV and also overwrite
+    ``properties_latest.csv`` in the same directory.  If ``CSV_PATH`` is set
+    in config.py the latest file is additionally copied there (useful if you
+    point it at a Google Drive / Autosync folder).
 
-    Parameters
-    ----------
-    path : str, optional
-        Destination file path.  Defaults to ``EXPORT_DIR/properties_YYYYMMDD.csv``.
+    Returns the path of the dated file.
     """
-    if path is None:
-        stamp = _now_utc().strftime("%Y%m%d")
-        path = os.path.join(EXPORT_DIR, f"properties_{stamp}.csv")
-
     listings = get_all_listings(include_removed=True)
 
-    with open(path, "w", newline="", encoding="utf-8") as fh:
-        writer = csv.DictWriter(fh, fieldnames=CSV_COLUMNS, extrasaction="ignore")
-        writer.writeheader()
-        for l in listings:
-            writer.writerow({
-                "address":        l.get("address", ""),
-                "area":           l.get("area", ""),
-                "price":          l.get("price", ""),
-                "price_change":   _price_change(l["price"], l.get("initial_price")),
-                "bedrooms":       l.get("bedrooms") or "",
-                "property_type":  l.get("property_type", ""),
-                "tenure":         l.get("tenure", ""),
-                "days_on_market": _days_on_market(l.get("first_seen", "")),
-                "first_seen":     _fmt_date(l.get("first_seen", "")),
-                "listing_date":   l.get("listing_date", ""),
-                "status":         l.get("status", ""),
-                "listing_url":    l.get("listing_url", ""),
-            })
+    stamp       = _now_utc().strftime("%Y%m%d")
+    dated_path  = path or os.path.join(EXPORT_DIR, f"properties_{stamp}.csv")
+    latest_path = os.path.join(EXPORT_DIR, "properties_latest.csv")
 
-    return path
+    def _write(dest: str) -> None:
+        os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
+        with open(dest, "w", newline="", encoding="utf-8") as fh:
+            writer = csv.DictWriter(fh, fieldnames=CSV_COLUMNS, extrasaction="ignore")
+            writer.writeheader()
+            for l in listings:
+                writer.writerow(_csv_row(l))
+
+    _write(dated_path)
+    _write(latest_path)
+
+    # Optional extra copy for Google Drive / rclone sync folder
+    if CSV_PATH:
+        try:
+            _write(CSV_PATH)
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning(
+                "Could not write CSV to CSV_PATH (%s): %s", CSV_PATH, exc
+            )
+
+    return dated_path
 
 
 # ── PDF export ─────────────────────────────────────────────────────────────────

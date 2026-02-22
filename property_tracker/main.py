@@ -95,7 +95,7 @@ def main() -> None:
         logger.error("Notification error: %s", exc)
 
     # 5 — Post Discord run report
-    from export import export_discord
+    from export import export_csv, export_discord
     try:
         export_discord(changes=changes)
         logger.info("Discord report sent")
@@ -103,10 +103,18 @@ def main() -> None:
         # Discord failures are non-fatal
         logger.error("Discord export error: %s", exc)
 
+    # 6 — Export CSV (dated + latest; optionally to CSV_PATH for Google Drive)
+    try:
+        csv_path = export_csv()
+        logger.info("CSV exported: %s", csv_path)
+    except Exception as exc:
+        logger.error("CSV export error: %s", exc)
+
     logger.info(
-        "Run complete — %d new | %d price drops | %d total",
+        "Run complete — %d new | %d price drops | %d rises | %d total",
         len(changes["new"]),
         len(changes["price_drops"]),
+        len(changes["price_rises"]),
         changes["total_seen"],
     )
     logger.info("=" * 60)

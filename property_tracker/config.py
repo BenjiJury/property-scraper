@@ -128,3 +128,7 @@ DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1474878416619835613/7MSv
 
 # PDF and CSV output directory (defaults to the same folder as this file)
 EXPORT_DIR = BASE_DIR
+
+# Optional: absolute path to write a *second* copy of properties_latest.csv
+# (e.g. a Google Drive / Autosync folder).  Leave as "" to skip.
+CSV_PATH = ""
