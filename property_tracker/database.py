@@ -81,6 +81,18 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_price_history_listing
                 ON price_history(listing_id);
         """)
+
+        # Add new columns to existing DBs — safe to re-run (ignore if already present)
+        for col_def in [
+            "ALTER TABLE listings ADD COLUMN latitude   REAL",
+            "ALTER TABLE listings ADD COLUMN longitude  REAL",
+            "ALTER TABLE listings ADD COLUMN sq_footage INTEGER",
+        ]:
+            try:
+                conn.execute(col_def)
+            except sqlite3.OperationalError:
+                pass  # column already exists
+
     logger.info("Database ready: %s", DB_PATH)
 
 
@@ -112,13 +124,22 @@ def upsert_listing(listing: dict) -> dict:
                 INSERT INTO listings
                     (listing_id, address, price, bedrooms, bathrooms,
                      property_type, tenure, area, listing_url, listing_date,
-                     first_seen, last_seen, status)
+                     first_seen, last_seen, status,
+                     latitude, longitude, sq_footage)
                 VALUES
                     (:listing_id, :address, :price, :bedrooms, :bathrooms,
                      :property_type, :tenure, :area, :listing_url, :listing_date,
-                     :first_seen, :last_seen, 'active')
+                     :first_seen, :last_seen, 'active',
+                     :latitude, :longitude, :sq_footage)
                 """,
-                {**listing, "first_seen": now, "last_seen": now},
+                {
+                    **listing,
+                    "first_seen": now,
+                    "last_seen": now,
+                    "latitude":   listing.get("latitude"),
+                    "longitude":  listing.get("longitude"),
+                    "sq_footage": listing.get("sq_footage"),
+                },
             )
             conn.execute(
                 "INSERT INTO price_history (listing_id, price, recorded_at) VALUES (?,?,?)",
@@ -150,7 +171,10 @@ def upsert_listing(listing: dict) -> dict:
                     bathrooms     = ?,
                     property_type = ?,
                     tenure        = ?,
-                    listing_url   = ?
+                    listing_url   = ?,
+                    latitude      = COALESCE(?, latitude),
+                    longitude     = COALESCE(?, longitude),
+                    sq_footage    = COALESCE(?, sq_footage)
                 WHERE listing_id = ?
                 """,
                 (
@@ -162,6 +186,9 @@ def upsert_listing(listing: dict) -> dict:
                     listing.get("property_type"),
                     listing.get("tenure"),
                     listing.get("listing_url"),
+                    listing.get("latitude"),
+                    listing.get("longitude"),
+                    listing.get("sq_footage"),
                     listing["listing_id"],
                 ),
             )

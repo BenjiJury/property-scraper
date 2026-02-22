@@ -28,6 +28,9 @@ COLUMNS = [
     "first_seen",
     "last_seen",
     "status",
+    "latitude",
+    "longitude",
+    "sq_footage",
 ]
 
 
@@ -50,7 +53,10 @@ def export() -> int:
             l.listing_date,
             l.first_seen,
             l.last_seen,
-            l.status
+            l.status,
+            l.latitude,
+            l.longitude,
+            l.sq_footage
         FROM listings l
         LEFT JOIN (
             SELECT listing_id, price

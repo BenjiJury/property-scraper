@@ -216,6 +216,39 @@ def _extract_next_data(html: str) -> dict | None:
         return None
 
 
+# ── Square footage parser ──────────────────────────────────────────────────────
+
+def _parse_sq_footage(text: str) -> int | None:
+    """
+    Parse a Rightmove displaySize string into sq ft (integer).
+
+    Examples:
+        "1,120 sq. ft."  → 1120
+        "120 sq. m"      → 1292   (120 × 10.764)
+        ""               → None
+    """
+    if not text:
+        return None
+    text = text.strip()
+
+    # Extract the leading number (may contain commas)
+    m = re.match(r"^([\d,]+(?:\.\d+)?)", text)
+    if not m:
+        return None
+    try:
+        value = float(m.group(1).replace(",", ""))
+    except ValueError:
+        return None
+
+    # Determine unit from the remainder of the string
+    remainder = text[m.end():].lower()
+    if "sq. m" in remainder or "sqm" in remainder or "m²" in remainder:
+        value = value * 10.7639  # convert sq m → sq ft
+    # Otherwise assume sq ft (covers "sq. ft.", "sqft", etc.)
+
+    return int(round(value))
+
+
 # ── Property parser ────────────────────────────────────────────────────────────
 
 def _parse_property(raw: dict, area_name: str) -> dict | None:
@@ -266,6 +299,15 @@ def _parse_property(raw: dict, area_name: str) -> dict | None:
         if prop_url and not prop_url.startswith("http"):
             prop_url = _BASE_URL + prop_url
 
+        # Location (lat/lng)
+        location  = raw.get("location") or {}
+        latitude  = location.get("latitude")
+        longitude = location.get("longitude")
+
+        # Square footage
+        display_size = raw.get("displaySize", "") or ""
+        sq_footage   = _parse_sq_footage(display_size)
+
         return {
             "listing_id":    listing_id,
             "address":       raw.get("displayAddress") or "Unknown",
@@ -277,6 +319,9 @@ def _parse_property(raw: dict, area_name: str) -> dict | None:
             "area":          area_name,
             "listing_url":   prop_url,
             "listing_date":  listing_date,
+            "latitude":      latitude,
+            "longitude":     longitude,
+            "sq_footage":    sq_footage,
         }
 
     except (KeyError, TypeError, ValueError) as exc:
