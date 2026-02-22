@@ -1,0 +1,13 @@
+[Unit]
+Description=Property Tracker — Rightmove scraper
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ben
+WorkingDirectory=/home/ben/property-tracker/property_tracker
+ExecStart=/home/ben/property-tracker/deploy/run.sh
+Environment=RCLONE_DEST=gdrive:PropertyTracker
+StandardOutput=journal
+StandardError=journal

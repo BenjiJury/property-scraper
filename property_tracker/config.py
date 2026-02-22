@@ -80,13 +80,13 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH  = os.path.join(BASE_DIR, "properties.db")
 LOG_PATH = os.path.join(BASE_DIR, "tracker.log")
 
-# ── Termux notification settings ──────────────────────────────────────────────
+# ── Notification settings ──────────────────────────────────────────────────────
 
-# Set to False to disable notifications (useful for testing on desktop)
-TERMUX_API_AVAILABLE = True
-
-NOTIFICATION_ID_NEW  = 1001   # Android notification ID for new listings
-NOTIFICATION_ID_DROP = 1002   # Android notification ID for price drops
+# ntfy push notification URL.
+# Self-hosted (Docker/apt): http://localhost/<topic>
+# Cloud:                    https://ntfy.sh/<topic>
+# Leave empty ("") to disable notifications.
+NTFY_URL = "http://localhost/keng-kxm29"
 
 # ── Dashboard display settings ────────────────────────────────────────────────
 
