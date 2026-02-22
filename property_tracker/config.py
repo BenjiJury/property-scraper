@@ -8,7 +8,7 @@ Three ways to find the correct identifier for an area:
 
   1. Visit rightmove.co.uk, search for the area, and copy the
      'locationIdentifier' value from the URL.
-     e.g. https://www.rightmove.co.uk/property-for-sale/find.html?locationIdentifier=REGION%5E93924
+     e.g. https://www.rightmove.co.uk/property-for-sale/find.html?locationIdentifier=REGION%5E93977
 
   2. Run the built-in lookup helper:
        python3 -c "
@@ -16,8 +16,8 @@ Three ways to find the correct identifier for an area:
        for r in lookup_location('Wandsworth'): print(r)
        "
 
-  3. Use Rightmove's typeahead API directly:
-       curl 'https://api.rightmove.co.uk/api/typeAhead/uknoauth?query=Wandsworth&numberOfSuggestions=5'
+  3. Use Rightmove's typeahead API directly (two-character token path):
+       curl 'https://www.rightmove.co.uk/typeAhead/uknostreet/WA/ND/SW/OR/TH/'
 """
 
 import os
@@ -50,17 +50,20 @@ PRICE_DROP_THRESHOLD = 0
 #   Merton      — SW19 (Wimbledon), SW20, CR4
 #   Richmond    — TW1, TW2, TW9, TW10
 #
+# Identifiers updated 2026-02-22 using the typeAhead endpoint:
+#   https://www.rightmove.co.uk/typeAhead/uknostreet/{TOKEN}/
+#
 # Herne Hill (SE24) falls within the Lambeth region.
 # Dulwich (SE21) and East Dulwich (SE22) fall within Lewisham/Lambeth regions.
 # Uncomment the outcode entries below for finer-grained targeting.
 
 SEARCH_LOCATIONS = [
-    {"name": "Wandsworth",           "identifier": "REGION^93924"},
-    {"name": "Lambeth",              "identifier": "REGION^93799"},
-    {"name": "Lewisham",             "identifier": "REGION^93942"},
-    {"name": "Kingston upon Thames", "identifier": "REGION^93714"},
-    {"name": "Merton",               "identifier": "REGION^93888"},
-    {"name": "Richmond upon Thames", "identifier": "REGION^93937"},
+    {"name": "Wandsworth",           "identifier": "REGION^93977"},
+    {"name": "Lambeth",              "identifier": "REGION^93971"},
+    {"name": "Lewisham",             "identifier": "REGION^61413"},
+    {"name": "Kingston upon Thames", "identifier": "REGION^93968"},
+    {"name": "Merton",               "identifier": "REGION^61414"},
+    {"name": "Richmond upon Thames", "identifier": "REGION^61415"},
     # Outcode-level alternatives (uncomment for tighter targeting):
     # {"name": "Dulwich (SE21)",     "identifier": "OUTCODE^2050"},
     # {"name": "East Dulwich (SE22)","identifier": "OUTCODE^2051"},
@@ -86,7 +89,7 @@ LOG_PATH = os.path.join(BASE_DIR, "tracker.log")
 # Self-hosted (Docker/apt): http://localhost/<topic>
 # Cloud:                    https://ntfy.sh/<topic>
 # Leave empty ("") to disable notifications.
-NTFY_URL = "http://localhost/keng-kxm29"
+NTFY_URL = "http://localhost:2586/keng-kxm29"
 
 # ── Dashboard display settings ────────────────────────────────────────────────
 

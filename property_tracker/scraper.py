@@ -3,28 +3,28 @@ scraper.py — Fetches listings from Rightmove.
 
 How data is extracted
 ---------------------
-Rightmove embeds all search-result data as a JSON blob assigned to
-`window.jsonModel` inside a <script> tag on every results page.
-We extract that JSON rather than parsing HTML elements, which is
-significantly more robust than CSS-selector scraping.
+Rightmove embeds all search-result data as a JSON blob in a
+<script id="__NEXT_DATA__" type="application/json"> tag on every results
+page (the site migrated to Next.js).  We extract that JSON and navigate to
+props.pageProps.searchResults, which contains the properties list, result
+count, and pagination metadata.
 
-If `window.jsonModel` is not found (e.g. Rightmove restructure their
-page), a second pass inspects every <script> tag for a JSON-shaped
-string containing a "properties" key.
+Previously the data was assigned to `window.jsonModel`; that approach no
+longer works as of early 2026.
 
 Pagination
 ----------
-The pagination.next field in the JSON gives the 0-based index of the
-next page (increments of 24).  We follow pages until there is no next
+The pagination.next field in the searchResults JSON gives the 0-based index
+of the next page (increments of 24).  We follow pages until there is no next
 index or we hit MAX_PAGES_PER_AREA.
 
 Freehold filtering
 ------------------
 Rightmove does not reliably expose tenure in search-result JSON.
 config.FILTER_FREEHOLD removes any listing whose tenure field is
-explicitly "leasehold"; listings with tenure "freehold" or "unknown"
-are kept.  The scraper also strips new-build / shared-ownership flags
-at the URL level with dontShow=newHome,sharedOwnership,retirement.
+explicitly "leasehold"; listings with tenure "freehold", "share_of_freehold",
+or "unknown" are kept.  The scraper also strips new-build / shared-ownership
+flags at the URL level with dontShow=newHome,sharedOwnership,retirement.
 """
 
 import json
@@ -55,7 +55,6 @@ logger = logging.getLogger(__name__)
 
 _BASE_URL    = "https://www.rightmove.co.uk"
 _SEARCH_PATH = "/property-for-sale/find.html"
-_TYPEAHEAD   = "https://api.rightmove.co.uk/api/typeAhead/uknoauth"
 
 # ── Request headers ────────────────────────────────────────────────────────────
 # A pool of realistic browser User-Agent strings; one is chosen at random for
@@ -179,76 +178,42 @@ def _fetch(url: str, session: requests.Session) -> str | None:
 
 # ── JSON extraction ────────────────────────────────────────────────────────────
 
-def _extract_json_model(html: str) -> dict | None:
+def _extract_next_data(html: str) -> dict | None:
     """
-    Pull window.jsonModel out of the page HTML.
+    Pull the search results from the __NEXT_DATA__ JSON embedded in the page.
 
-    Strategy 1 — regex on the full page text (fastest).
-    Strategy 2 — BeautifulSoup <script> tag iteration with brace matching
-                 (handles minified JS where strategy 1 may fail).
+    Rightmove migrated to Next.js in early 2026.  All search-result data is
+    now embedded as a JSON blob in:
+        <script id="__NEXT_DATA__" type="application/json">...</script>
+
+    The search results payload is at props.pageProps.searchResults and
+    contains:
+        - properties:   list of listing dicts
+        - resultCount:  total matching listings (int)
+        - pagination:   dict with 'next' key (str index of next page, or absent)
     """
-    # Strategy 1: simple regex
-    m = re.search(r"window\.jsonModel\s*=\s*(\{)", html)
-    if m:
-        start = m.start(1)
-        json_str = _extract_balanced_json(html, start)
-        if json_str:
-            try:
-                return json.loads(json_str)
-            except json.JSONDecodeError as exc:
-                logger.debug("Strategy-1 JSON decode failed: %s", exc)
-
-    # Strategy 2: BeautifulSoup script tag search
+    m = re.search(
+        r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>',
+        html,
+        re.DOTALL,
+    )
+    if not m:
+        logger.warning("Could not find __NEXT_DATA__ in page")
+        return None
     try:
-        soup = BeautifulSoup(html, "html.parser")
-        for tag in soup.find_all("script"):
-            text = tag.string or ""
-            if "window.jsonModel" not in text:
-                continue
-            m2 = re.search(r"window\.jsonModel\s*=\s*(\{)", text)
-            if not m2:
-                continue
-            json_str = _extract_balanced_json(text, m2.start(1))
-            if json_str:
-                try:
-                    return json.loads(json_str)
-                except json.JSONDecodeError as exc:
-                    logger.debug("Strategy-2 JSON decode failed: %s", exc)
-    except Exception as exc:
-        logger.debug("BeautifulSoup parse error: %s", exc)
-
-    logger.warning("Could not extract window.jsonModel from page")
-    return None
-
-
-def _extract_balanced_json(text: str, start: int) -> str | None:
-    """
-    Extract a balanced JSON object starting at position `start` in `text`.
-    Returns the JSON string, or None if braces are unbalanced.
-    """
-    depth = 0
-    in_string = False
-    escape_next = False
-
-    for i, ch in enumerate(text[start:]):
-        if escape_next:
-            escape_next = False
-            continue
-        if ch == "\\" and in_string:
-            escape_next = True
-            continue
-        if ch == '"' and not escape_next:
-            in_string = not in_string
-            continue
-        if in_string:
-            continue
-        if ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                return text[start : start + i + 1]
-    return None
+        page_data = json.loads(m.group(1))
+        search_results = (
+            page_data
+            .get("props", {})
+            .get("pageProps", {})
+            .get("searchResults")
+        )
+        if search_results is None:
+            logger.warning("searchResults key missing from __NEXT_DATA__")
+        return search_results
+    except json.JSONDecodeError as exc:
+        logger.warning("Failed to parse __NEXT_DATA__ JSON: %s", exc)
+        return None
 
 
 # ── Property parser ────────────────────────────────────────────────────────────
@@ -271,7 +236,9 @@ def _parse_property(raw: dict, area_name: str) -> dict | None:
         # Property sub-type ("Detached", "Semi-Detached", "Terraced", …)
         prop_type = raw.get("propertySubType") or raw.get("propertyType") or ""
 
-        # Tenure — not always present in search JSON; default to "unknown"
+        # Tenure — not always present in search JSON; default to "unknown".
+        # Values from Rightmove are uppercase: FREEHOLD, LEASEHOLD,
+        # SHARE_OF_FREEHOLD.  Normalise to lowercase for consistent filtering.
         tenure_raw = raw.get("tenure") or {}
         if isinstance(tenure_raw, dict):
             tenure = (tenure_raw.get("tenureType") or "unknown").lower()
@@ -324,18 +291,18 @@ def lookup_location(query: str) -> list:
     Query Rightmove's typeahead API for a place name.
     Returns a list of {"displayName": str, "identifier": str} dicts.
 
+    The typeahead endpoint expects the query tokenised into two-character
+    chunks separated by slashes, e.g. "cornwall" → "CO/RN/WA/LL".
+
     Usage:
         python3 -c "from scraper import lookup_location; print(lookup_location('Wandsworth'))"
     """
     try:
-        params = {
-            "query":                query,
-            "numberOfSuggestions":  5,
-            "request_source":       "WWW",
-        }
+        q = query.upper().replace(" ", "")
+        token_path = "/".join(q[i:i+2] for i in range(0, len(q), 2))
+        url = f"{_BASE_URL}/typeAhead/uknostreet/{token_path}/"
         resp = requests.get(
-            _TYPEAHEAD,
-            params=params,
+            url,
             headers=_random_headers(),
             timeout=10,
         )
@@ -375,9 +342,9 @@ def _scrape_area(location: dict, session: requests.Session) -> list:
             logger.warning("%s — failed to fetch page at index %d; stopping.", name, page_index)
             break
 
-        data = _extract_json_model(html)
+        data = _extract_next_data(html)
         if not data:
-            logger.warning("%s — no JSON model at index %d; stopping.", name, page_index)
+            logger.warning("%s — no search results data at index %d; stopping.", name, page_index)
             break
 
         properties = data.get("properties") or []
