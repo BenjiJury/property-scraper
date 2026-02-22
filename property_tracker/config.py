@@ -39,6 +39,12 @@ FILTER_FREEHOLD = True
 # Any price drop triggers a notification (threshold = 0 means any reduction).
 PRICE_DROP_THRESHOLD = 0
 
+# Any price rise triggers a notification (threshold = 0 means any increase).
+PRICE_RISE_THRESHOLD = 0
+
+# A listing with no price change after this many days is considered stale.
+STALE_LISTING_DAYS = 60
+
 # ── Rightmove location identifiers ────────────────────────────────────────────
 #
 # Coverage:
@@ -105,8 +111,10 @@ LOG_PATH = os.path.join(BASE_DIR, "tracker.log")
 # Set to False to disable notifications (useful for testing on desktop)
 TERMUX_API_AVAILABLE = True
 
-NOTIFICATION_ID_NEW  = 1001   # Android notification ID for new listings
-NOTIFICATION_ID_DROP = 1002   # Android notification ID for price drops
+NOTIFICATION_ID_NEW   = 1001  # Android notification ID for new listings
+NOTIFICATION_ID_DROP  = 1002  # Android notification ID for price drops
+NOTIFICATION_ID_RISE  = 1003  # Android notification ID for price rises
+NOTIFICATION_ID_STALE = 1004  # Android notification ID for newly-stale listings
 
 # ── Dashboard display settings ────────────────────────────────────────────────
 

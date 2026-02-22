@@ -64,7 +64,8 @@ def init_db() -> None:
                 listing_date  TEXT,
                 first_seen    TEXT    NOT NULL,
                 last_seen     TEXT    NOT NULL,
-                status        TEXT    NOT NULL DEFAULT 'active'
+                status        TEXT    NOT NULL DEFAULT 'active',
+                watchlist     INTEGER NOT NULL DEFAULT 0
             );
 
             CREATE TABLE IF NOT EXISTS price_history (
@@ -81,6 +82,16 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_price_history_listing
                 ON price_history(listing_id);
         """)
+
+    # Migrate existing databases that pre-date the watchlist column.
+    with db_connection() as conn:
+        try:
+            conn.execute(
+                "ALTER TABLE listings ADD COLUMN watchlist INTEGER NOT NULL DEFAULT 0"
+            )
+        except Exception:
+            pass  # column already exists
+
     logger.info("Database ready: %s", DB_PATH)
 
 
@@ -97,7 +108,7 @@ def upsert_listing(listing: dict) -> dict:
         'price_drop'  — (old_price, new_price) tuple, or None
     """
     now    = datetime.utcnow().isoformat()
-    result = {"is_new": False, "price_drop": None}
+    result = {"is_new": False, "price_drop": None, "price_rise": None}
 
     with db_connection() as conn:
         existing = conn.execute(
@@ -138,6 +149,8 @@ def upsert_listing(listing: dict) -> dict:
                 )
                 if new_price < old_price:
                     result["price_drop"] = (old_price, new_price)
+                elif new_price > old_price:
+                    result["price_rise"] = (old_price, new_price)
 
             conn.execute(
                 """
@@ -225,6 +238,69 @@ def get_all_listings(include_removed: bool = True) -> list:
     return [dict(row) for row in rows]
 
 
+def set_watchlist(listing_id: str, on: bool) -> bool:
+    """
+    Add or remove a listing from the watchlist.
+    Returns True if the listing was found, False if it does not exist.
+    """
+    with db_connection() as conn:
+        rows_affected = conn.execute(
+            "UPDATE listings SET watchlist = ? WHERE listing_id = ?",
+            (1 if on else 0, listing_id),
+        ).rowcount
+    return rows_affected > 0
+
+
+def get_watchlist_listings() -> list:
+    """Return all watchlisted listings joined with their initial price."""
+    query = """
+        SELECT
+            l.*,
+            ph_first.price AS initial_price
+        FROM listings l
+        LEFT JOIN (
+            SELECT listing_id, price
+            FROM price_history
+            WHERE id IN (SELECT MIN(id) FROM price_history GROUP BY listing_id)
+        ) ph_first ON ph_first.listing_id = l.listing_id
+        WHERE l.watchlist = 1
+        ORDER BY l.first_seen DESC
+    """
+    with db_connection() as conn:
+        rows = conn.execute(query).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_stale_listings(min_days: int) -> list:
+    """
+    Return active listings whose price has never changed and that have been
+    on the market for at least min_days days, ordered oldest-first.
+
+    The computed column ``days_on_market`` is included in each row dict so
+    callers can detect whether a listing *just* crossed the threshold.
+    """
+    query = """
+        SELECT
+            l.*,
+            ph_first.price AS initial_price,
+            CAST(julianday('now') - julianday(l.first_seen) AS INTEGER)
+                AS days_on_market
+        FROM listings l
+        LEFT JOIN (
+            SELECT listing_id, price
+            FROM price_history
+            WHERE id IN (SELECT MIN(id) FROM price_history GROUP BY listing_id)
+        ) ph_first ON ph_first.listing_id = l.listing_id
+        WHERE l.status = 'active'
+          AND l.price = COALESCE(ph_first.price, l.price)
+          AND CAST(julianday('now') - julianday(l.first_seen) AS INTEGER) >= ?
+        ORDER BY l.first_seen ASC
+    """
+    with db_connection() as conn:
+        rows = conn.execute(query, (min_days,)).fetchall()
+    return [dict(row) for row in rows]
+
+
 def get_price_history(listing_id: str) -> list:
     """Return the full price history for a single listing, oldest first."""
     with db_connection() as conn:
@@ -238,3 +314,58 @@ def get_price_history(listing_id: str) -> list:
             (listing_id,),
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+# ── Watchlist CLI ──────────────────────────────────────────────────────────────
+
+if __name__ == "__main__":
+    import sys
+
+    def _usage() -> None:
+        print("Manage the property watchlist.\n")
+        print("Usage:")
+        print("  python3 database.py watchlist list")
+        print("  python3 database.py watchlist add <listing_id>")
+        print("  python3 database.py watchlist remove <listing_id>")
+        print("\nThe listing_id is the numeric Rightmove property ID, visible")
+        print("in the URL:  rightmove.co.uk/properties/<listing_id>")
+        sys.exit(1)
+
+    args = sys.argv[1:]
+    if len(args) < 2 or args[0] != "watchlist":
+        _usage()
+
+    init_db()
+    sub = args[1]
+
+    if sub == "list":
+        items = get_watchlist_listings()
+        if not items:
+            print("Watchlist is empty.")
+        else:
+            print(f"{'Listing ID':<14} {'Price':>12}  {'Beds':>4}  Address")
+            print("─" * 70)
+            for l in items:
+                status = "" if l["status"] == "active" else " [removed]"
+                print(
+                    f"{l['listing_id']:<14} £{l['price']:>11,}"
+                    f"  {str(l.get('bedrooms') or '?'):>4}  "
+                    f"{l.get('address', '')[:40]}{status}"
+                )
+
+    elif sub == "add" and len(args) == 3:
+        if set_watchlist(args[2], True):
+            print(f"Added {args[2]} to watchlist.")
+        else:
+            print(f"Listing {args[2]} not found in database.")
+            sys.exit(1)
+
+    elif sub == "remove" and len(args) == 3:
+        if set_watchlist(args[2], False):
+            print(f"Removed {args[2]} from watchlist.")
+        else:
+            print(f"Listing {args[2]} not found in database.")
+            sys.exit(1)
+
+    else:
+        _usage()

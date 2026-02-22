@@ -40,7 +40,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import requests
 
 from config import DISCORD_WEBHOOK_URL, EXPORT_DIR
-from database import get_all_listings
+from database import get_all_listings, get_watchlist_listings
 
 
 # ── Shared helpers ─────────────────────────────────────────────────────────────
@@ -303,48 +303,112 @@ def _truncate(s: str, n: int) -> str:
     return s if len(s) <= n else s[: n - 1] + "…"
 
 
-def _new_listings_table(listings: list, max_rows: int = 10) -> dict:
-    """Return an embed field containing a monospace table of new listings."""
+def _listing_link(l: dict, max_addr: int = 40) -> str:
+    """Return a Discord markdown hyperlink, or plain address if no URL."""
+    url  = l.get("listing_url", "")
+    addr = _truncate(l.get("address", "Unknown"), max_addr)
+    return f"[{addr}]({url})" if url else addr
+
+
+def _new_listings_field(listings: list, max_rows: int = 10) -> dict:
+    """Embed field: bullet list of new listings with clickable Rightmove links."""
     shown = listings[:max_rows]
-    rows = []
+    lines = []
     for l in shown:
-        rows.append([
-            f"£{l['price']:,}",
-            str(l.get("bedrooms") or "?"),
-            _truncate(l.get("area", ""), 16),
-            f"{_days_on_market(l.get('first_seen', ''))}d",
-            _truncate(l.get("address", "Unknown"), 32),
-        ])
-    table = _fmt_table(["Price", "Beds", "Area", "DOM", "Address"], rows)
+        lines.append(
+            f"• {_listing_link(l)} — "
+            f"£{l['price']:,} · {l.get('bedrooms') or '?'}bd · "
+            f"{_truncate(l.get('area', ''), 16)}"
+        )
     suffix = f"\n*…and {len(listings) - max_rows} more*" if len(listings) > max_rows else ""
     return {
-        "name": f"🆕  New listings  ({len(listings)})",
-        "value": (table + suffix)[:1024],
+        "name":   f"🆕  New listings  ({len(listings)})",
+        "value":  ("\n".join(lines) + suffix)[:1024],
         "inline": False,
     }
 
 
-def _price_drops_table(price_drops: list, max_rows: int = 10) -> dict:
-    """Return an embed field containing a monospace table of price drops."""
+def _price_drops_field(price_drops: list, max_rows: int = 8) -> dict:
+    """Embed field: bullet list of price drops with clickable Rightmove links."""
     shown = price_drops[:max_rows]
-    rows = []
+    lines = []
     for l, old_price, new_price in shown:
         saved = old_price - new_price
-        rows.append([
-            _truncate(l.get("address", "Unknown"), 28),
-            _truncate(l.get("area", ""), 14),
-            f"£{old_price:,}",
-            f"£{new_price:,}",
-            f"↓£{saved:,}",
-        ])
-    table = _fmt_table(["Address", "Area", "Was", "Now", "Saved"], rows)
+        lines.append(
+            f"• {_listing_link(l)} — "
+            f"£{old_price:,} → £{new_price:,} (↓ £{saved:,}) · "
+            f"{_truncate(l.get('area', ''), 14)}"
+        )
     suffix = (
         f"\n*…and {len(price_drops) - max_rows} more*"
         if len(price_drops) > max_rows else ""
     )
     return {
-        "name": f"💸  Price drops  ({len(price_drops)})",
-        "value": (table + suffix)[:1024],
+        "name":   f"💸  Price drops  ({len(price_drops)})",
+        "value":  ("\n".join(lines) + suffix)[:1024],
+        "inline": False,
+    }
+
+
+def _price_rises_field(price_rises: list, max_rows: int = 8) -> dict:
+    """Embed field: bullet list of price rises with clickable Rightmove links."""
+    shown = price_rises[:max_rows]
+    lines = []
+    for l, old_price, new_price in shown:
+        increase = new_price - old_price
+        lines.append(
+            f"• {_listing_link(l)} — "
+            f"£{old_price:,} → £{new_price:,} (↑ £{increase:,}) · "
+            f"{_truncate(l.get('area', ''), 14)}"
+        )
+    suffix = (
+        f"\n*…and {len(price_rises) - max_rows} more*"
+        if len(price_rises) > max_rows else ""
+    )
+    return {
+        "name":   f"📈  Price rises  ({len(price_rises)})",
+        "value":  ("\n".join(lines) + suffix)[:1024],
+        "inline": False,
+    }
+
+
+def _stale_listings_field(stale: list, max_rows: int = 10) -> dict:
+    """Embed field: compact table of stale listings (no price change for 60+ days)."""
+    shown = stale[:max_rows]
+    rows  = []
+    for l in shown:
+        dom = l.get("days_on_market") or _days_on_market(l.get("first_seen", ""))
+        rows.append([
+            f"£{l['price']:,}",
+            f"{dom}d",
+            _truncate(l.get("area", ""), 14),
+            _truncate(l.get("address", "Unknown"), 30),
+        ])
+    table  = _fmt_table(["Price", "DOM", "Area", "Address"], rows)
+    suffix = f"\n*…and {len(stale) - max_rows} more*" if len(stale) > max_rows else ""
+    return {
+        "name":   f"🕰  Stale listings  ({len(stale)})",
+        "value":  (table + suffix)[:1024],
+        "inline": False,
+    }
+
+
+def _watchlist_field(watchlisted: list) -> dict:
+    """Embed field: watchlisted properties with price history and DOM."""
+    lines = []
+    for l in watchlisted:
+        dom    = _days_on_market(l.get("first_seen", ""))
+        change = _price_change(l["price"], l.get("initial_price"))
+        change_str = f" · {change}" if change != "—" else ""
+        status_str = " ~~[removed]~~" if l.get("status") == "removed" else ""
+        lines.append(
+            f"• {_listing_link(l)} — "
+            f"£{l['price']:,} · {l.get('bedrooms') or '?'}bd · "
+            f"{dom}d{change_str}{status_str}"
+        )
+    return {
+        "name":   f"⭐  Watchlist  ({len(watchlisted)})",
+        "value":  ("\n".join(lines) or "—")[:1024],
         "inline": False,
     }
 
@@ -440,61 +504,77 @@ def export_discord(
             "Set DISCORD_WEBHOOK_URL in config.py or pass it as an argument."
         )
 
-    active = get_all_listings(include_removed=False)
-    now_str = _now_utc().strftime("%d %b %Y %H:%M") + " UTC"
+    active      = get_all_listings(include_removed=False)
+    watchlisted = get_watchlist_listings()
+    now_str     = _now_utc().strftime("%d %b %Y %H:%M") + " UTC"
 
     # ── Run-report mode (called from main.py after a scrape) ──────────────────
     if changes is not None:
         new_listings = changes.get("new", [])
-        price_drops  = changes.get("price_drops", [])   # list of (l, old, new)
+        price_drops  = changes.get("price_drops", [])
+        price_rises  = changes.get("price_rises", [])
+        stale        = changes.get("stale", [])
         total_seen   = changes.get("total_seen", len(active))
 
         n_new   = len(new_listings)
         n_drops = len(price_drops)
+        n_rises = len(price_rises)
+        n_stale = len(stale)
 
-        # Colour: red if drops, green if new only, grey if nothing changed
-        if n_drops:
-            color = 0xCC2200   # red
+        # Colour: red if price changes, green if new only, blurple if quiet
+        if n_drops or n_rises:
+            color = 0xCC2200
         elif n_new:
-            color = 0x00AA55   # green
+            color = 0x00AA55
         else:
-            color = 0x7289DA   # discord blurple — quiet run
+            color = 0x7289DA
 
         desc = (
             f"Scraped **{total_seen}** listings  ·  "
             f"**{n_new}** new  ·  "
-            f"**{n_drops}** price {'drop' if n_drops == 1 else 'drops'}  ·  "
+            f"**{n_drops}** drop{'s' if n_drops != 1 else ''}  ·  "
+            f"**{n_rises}** rise{'s' if n_rises != 1 else ''}  ·  "
+            f"**{n_stale}** stale  ·  "
             f"**{len(active)}** active total"
         )
 
         fields: list[dict] = []
+        if watchlisted:
+            fields.append(_watchlist_field(watchlisted))
         if new_listings:
-            fields.append(_new_listings_table(new_listings))
+            fields.append(_new_listings_field(new_listings))
         if price_drops:
-            fields.append(_price_drops_table(price_drops))
+            fields.append(_price_drops_field(price_drops))
+        if price_rises:
+            fields.append(_price_rises_field(price_rises))
+        if stale:
+            fields.append(_stale_listings_field(stale))
         fields.append(_stats_field(active))
 
         # Clamp to Discord's 25-field limit
         fields = fields[:25]
 
         embeds = [{
-            "title": "🏠 Property Tracker — South & SW London",
+            "title":       "🏠 Property Tracker — South & SW London",
             "description": desc,
-            "color": color,
-            "fields": fields,
-            "footer": {"text": now_str},
+            "color":       color,
+            "fields":      fields,
+            "footer":      {"text": now_str},
         }]
 
     # ── Dashboard mode (manual CLI call — no changes context) ─────────────────
     else:
-        fields = [_dashboard_table(active), _stats_field(active)]
+        fields = []
+        if watchlisted:
+            fields.append(_watchlist_field(watchlisted))
+        fields += [_dashboard_table(active), _stats_field(active)]
 
         embeds = [{
-            "title": "🏠 Property Tracker — South & SW London",
+            "title":       "🏠 Property Tracker — South & SW London",
             "description": f"**{len(active)} active listings**",
-            "color": 0x1E6EBE,
-            "fields": fields,
-            "footer": {"text": now_str},
+            "color":       0x1E6EBE,
+            "fields":      fields,
+            "footer":      {"text": now_str},
         }]
 
     _post_webhook(url, {"embeds": embeds})

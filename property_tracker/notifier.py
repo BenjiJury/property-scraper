@@ -27,6 +27,8 @@ import subprocess
 from config import (
     NOTIFICATION_ID_DROP,
     NOTIFICATION_ID_NEW,
+    NOTIFICATION_ID_RISE,
+    NOTIFICATION_ID_STALE,
     TERMUX_API_AVAILABLE,
 )
 
@@ -150,3 +152,58 @@ def notify_price_drops(price_drops: list) -> None:
 
     if _send(title, content, NOTIFICATION_ID_DROP):
         logger.info("Sent price-drop notification (%d drop(s))", count)
+
+
+def notify_price_rises(price_rises: list) -> None:
+    """
+    Send one grouped notification for all price increases found this run.
+    """
+    if not price_rises:
+        return
+
+    count = len(price_rises)
+
+    if count == 1:
+        lst, old_price, new_price = price_rises[0]
+        increase = new_price - old_price
+        title    = "Price increase"
+        content  = (
+            f"{lst['address']}\n"
+            f"£{old_price:,}  →  £{new_price:,}   (↑ £{increase:,})"
+        )
+    else:
+        increases = [np - op for _, op, np in price_rises]
+        title     = f"{count} price increases"
+        content   = (
+            f"Largest rise: £{max(increases):,}\n"
+            f"Across {count} properties"
+        )
+
+    if _send(title, content, NOTIFICATION_ID_RISE):
+        logger.info("Sent price-rise notification (%d rise(s))", count)
+
+
+def notify_stale_listings(newly_stale: list) -> None:
+    """
+    Send one notification for listings that have just crossed the stale
+    threshold (i.e. no price change for STALE_LISTING_DAYS days).
+    """
+    if not newly_stale:
+        return
+
+    count = len(newly_stale)
+
+    if count == 1:
+        lst  = newly_stale[0]
+        dom  = lst.get("days_on_market", "?")
+        title   = "Stale listing"
+        content = (
+            f"{lst['address']}\n"
+            f"£{lst['price']:,}  ·  {dom} days on market  ·  no price change"
+        )
+    else:
+        title   = f"{count} listings now stale"
+        content = f"{count} properties with no price change for 60+ days"
+
+    if _send(title, content, NOTIFICATION_ID_STALE):
+        logger.info("Sent stale-listing notification (%d listing(s))", count)

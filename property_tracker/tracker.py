@@ -13,8 +13,8 @@ Responsibilities
 
 import logging
 
-from config import PRICE_DROP_THRESHOLD
-from database import mark_removed, upsert_listing
+from config import PRICE_DROP_THRESHOLD, PRICE_RISE_THRESHOLD, STALE_LISTING_DAYS
+from database import get_stale_listings, mark_removed, upsert_listing
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +36,7 @@ def process_listings(scraped: list) -> dict:
     """
     new_listings  = []
     price_drops   = []
+    price_rises   = []
     ids_seen: set = set()
 
     for listing in scraped:
@@ -72,21 +73,52 @@ def process_listings(scraped: list) -> dict:
                     f"{reduction:,}",
                 )
 
+        elif result["price_rise"]:
+            old_price, new_price = result["price_rise"]
+            increase = new_price - old_price
+            if increase >= PRICE_RISE_THRESHOLD:
+                price_rises.append((listing, old_price, new_price))
+                logger.info(
+                    "RISE %s — £%s → £%s  (↑£%s)",
+                    listing["address"],
+                    f"{old_price:,}",
+                    f"{new_price:,}",
+                    f"{increase:,}",
+                )
+
     # Properties absent from this run's results → mark removed
     try:
         mark_removed(ids_seen)
     except Exception as exc:
         logger.error("Failed to mark removed listings: %s", exc)
 
+    # Stale listing detection — active listings with no price change for N+ days.
+    # "Newly stale" = just crossed the threshold this run (used for push alerts).
+    try:
+        all_stale = get_stale_listings(STALE_LISTING_DAYS)
+        newly_stale = [
+            l for l in all_stale
+            if STALE_LISTING_DAYS <= l.get("days_on_market", 0) < STALE_LISTING_DAYS + 2
+        ]
+    except Exception as exc:
+        logger.error("Stale listing detection failed: %s", exc)
+        all_stale = []
+        newly_stale = []
+
     logger.info(
-        "Tracker: %d new | %d price drops | %d total seen",
+        "Tracker: %d new | %d drops | %d rises | %d stale | %d total seen",
         len(new_listings),
         len(price_drops),
+        len(price_rises),
+        len(all_stale),
         len(ids_seen),
     )
 
     return {
-        "new":         new_listings,
-        "price_drops": price_drops,
-        "total_seen":  len(ids_seen),
+        "new":          new_listings,
+        "price_drops":  price_drops,
+        "price_rises":  price_rises,
+        "stale":        all_stale,
+        "newly_stale":  newly_stale,
+        "total_seen":   len(ids_seen),
     }

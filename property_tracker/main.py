@@ -79,10 +79,17 @@ def main() -> None:
         sys.exit(1)
 
     # 4 — Send Termux notifications
-    from notifier import notify_new_listings, notify_price_drops
+    from notifier import (
+        notify_new_listings,
+        notify_price_drops,
+        notify_price_rises,
+        notify_stale_listings,
+    )
     try:
         notify_new_listings(changes["new"])
         notify_price_drops(changes["price_drops"])
+        notify_price_rises(changes["price_rises"])
+        notify_stale_listings(changes["newly_stale"])
     except Exception as exc:
         # Notification failures are non-fatal
         logger.error("Notification error: %s", exc)
