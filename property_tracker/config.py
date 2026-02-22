@@ -89,7 +89,7 @@ LOG_PATH = os.path.join(BASE_DIR, "tracker.log")
 # Self-hosted (Docker/apt): http://localhost/<topic>
 # Cloud:                    https://ntfy.sh/<topic>
 # Leave empty ("") to disable notifications.
-NTFY_URL = "http://localhost:2586/keng-kxm29"
+NTFY_URL = "https://ntfy.home.lan/keng-kxm29"
 
 # ── Dashboard display settings ────────────────────────────────────────────────
 
