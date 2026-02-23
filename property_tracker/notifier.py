@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 # ── Internal send ──────────────────────────────────────────────────────────────
 
-def _send(title: str, content: str, tags: str = "") -> bool:
+def _send(title: str, content: str, tags: str = "", click_url: str = "") -> bool:
     """POST a notification to the ntfy server. Returns True on success."""
     if not NTFY_URL:
         logger.debug("NTFY_URL not set — skipping notification")
@@ -31,6 +31,8 @@ def _send(title: str, content: str, tags: str = "") -> bool:
     }
     if tags:
         headers["Tags"] = tags
+    if click_url:
+        headers["Click"] = click_url
 
     try:
         resp = requests.post(
@@ -57,24 +59,27 @@ def notify_new_listings(new_listings: list) -> None:
 
     if count == 1:
         lst     = new_listings[0]
+        url     = lst.get("listing_url", "")
         title   = "New property listed"
         content = (
             f"{lst['address']}\n"
             f"£{lst['price']:,}  ·  {lst.get('bedrooms', '?')} bed"
             f"  ·  {lst.get('property_type', '')}  ·  {lst.get('area', '')}\n"
-            f"{lst.get('listing_url', '')}"
+            f"{url}"
         )
+        _send(title, content, tags="house", click_url=url)
     else:
-        prices = [l["price"] for l in new_listings]
-        areas  = sorted({l.get("area", "") for l in new_listings if l.get("area")})
-        title  = f"{count} new properties listed"
-        content = (
-            f"£{min(prices):,} – £{max(prices):,}\n"
-            f"{', '.join(areas)}"
-        )
+        lines = []
+        for lst in new_listings:
+            lines.append(
+                f"• {lst['address']} — £{lst['price']:,}"
+                f" ({lst.get('bedrooms', '?')} bed {lst.get('property_type', '')}, {lst.get('area', '')})"
+            )
+        title   = f"{count} new properties listed"
+        content = "\n".join(lines)
+        _send(title, content, tags="house")
 
-    if _send(title, content, tags="house"):
-        logger.info("Sent new-listing notification (%d listing(s))", count)
+    logger.info("Sent new-listing notification (%d listing(s))", count)
 
 
 def notify_price_drops(price_drops: list) -> None:
@@ -87,19 +92,24 @@ def notify_price_drops(price_drops: list) -> None:
     if count == 1:
         lst, old_price, new_price = price_drops[0]
         reduction = old_price - new_price
+        url       = lst.get("listing_url", "")
         title     = "Price reduction"
         content   = (
             f"{lst['address']}\n"
-            f"£{old_price:,}  →  £{new_price:,}   (↓ £{reduction:,})\n"
-            f"{lst.get('listing_url', '')}"
+            f"{lst.get('bedrooms', '?')} bed {lst.get('property_type', '')}  ·  {lst.get('area', '')}\n"
+            f"£{old_price:,}  →  £{new_price:,}   (saving £{reduction:,})\n"
+            f"{url}"
         )
+        _send(title, content, tags="chart_with_downwards_trend", click_url=url)
     else:
-        reductions = [op - np for _, op, np in price_drops]
-        title      = f"{count} price reductions"
-        content    = (
-            f"Largest drop: £{max(reductions):,}\n"
-            f"Across {count} properties"
-        )
+        lines = []
+        for lst, old_price, new_price in price_drops:
+            reduction = old_price - new_price
+            lines.append(
+                f"• {lst['address']} — £{old_price:,} → £{new_price:,} (↓ £{reduction:,})"
+            )
+        title   = f"{count} price reductions"
+        content = "\n".join(lines)
+        _send(title, content, tags="chart_with_downwards_trend")
 
-    if _send(title, content, tags="chart_with_downwards_trend"):
-        logger.info("Sent price-drop notification (%d drop(s))", count)
+    logger.info("Sent price-drop notification (%d drop(s))", count)
