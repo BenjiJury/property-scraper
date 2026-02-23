@@ -441,7 +441,9 @@ def scrape_all() -> list:
 
     Deduplication is by listing_id because the same property can appear in
     multiple area searches (e.g. a house on the Wandsworth/Lambeth border).
-    The first area that returns the listing wins.
+    The last area to return a listing wins, so more-specific area names placed
+    later in SEARCH_LOCATIONS (e.g. Teddington after Richmond, Herne Hill
+    after Lambeth) correctly relabel overlapping listings.
     """
     session  = requests.Session()
     seen: dict[str, dict] = {}
@@ -451,8 +453,7 @@ def scrape_all() -> list:
             _delay()
         try:
             for listing in _scrape_area(location, session):
-                if listing["listing_id"] not in seen:
-                    seen[listing["listing_id"]] = listing
+                seen[listing["listing_id"]] = listing
         except Exception as exc:
             logger.error("Unhandled error scraping %s: %s", location["name"], exc)
 
