@@ -47,13 +47,16 @@ PRICE_DROP_THRESHOLD = 0
 #   Lambeth     — SE11, SW4 (Clapham), SW8, SW9, SE24 (Herne Hill)
 #   Lewisham    — SE4, SE6, SE12, SE13, SE14, SE23, SE21/SE22 (Dulwich border)
 #   Kingston    — KT1, KT2
-#   Merton      — SW19 (Wimbledon), SW20, CR4
 #   Richmond    — TW1, TW2, TW9, TW10
+#   Wimbledon   — SW19, SW20 (more targeted than Merton REGION)
+#   Teddington  — TW11 (not covered by Richmond REGION^61415)
+#   Herne Hill  — SE24 (also inside Lambeth; deduped by listing_id;
+#                 SE24 listings relabelled "Herne Hill" on each run)
 #
 # Identifiers updated 2026-02-22 using the typeAhead endpoint:
 #   https://www.rightmove.co.uk/typeAhead/uknostreet/{TOKEN}/
+# Areas updated 2026-02-23: removed Merton, added Wimbledon/Teddington/Herne Hill.
 #
-# Herne Hill (SE24) falls within the Lambeth region.
 # Dulwich (SE21) and East Dulwich (SE22) fall within Lewisham/Lambeth regions.
 # Uncomment the outcode entries below for finer-grained targeting.
 
@@ -62,12 +65,13 @@ SEARCH_LOCATIONS = [
     {"name": "Lambeth",              "identifier": "REGION^93971"},
     {"name": "Lewisham",             "identifier": "REGION^61413"},
     {"name": "Kingston upon Thames", "identifier": "REGION^93968"},
-    {"name": "Merton",               "identifier": "REGION^61414"},
     {"name": "Richmond upon Thames", "identifier": "REGION^61415"},
+    {"name": "Wimbledon",            "identifier": "REGION^87540"},
+    {"name": "Teddington",           "identifier": "REGION^1321"},
+    {"name": "Herne Hill",           "identifier": "OUTCODE^2053"},
     # Outcode-level alternatives (uncomment for tighter targeting):
     # {"name": "Dulwich (SE21)",     "identifier": "OUTCODE^2050"},
     # {"name": "East Dulwich (SE22)","identifier": "OUTCODE^2051"},
-    # {"name": "Herne Hill (SE24)",  "identifier": "OUTCODE^2053"},
 ]
 
 # ── Request / scraping settings ────────────────────────────────────────────────
