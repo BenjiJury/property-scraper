@@ -42,36 +42,40 @@ PRICE_DROP_THRESHOLD = 0
 # ── Rightmove location identifiers ────────────────────────────────────────────
 #
 # Coverage:
-#   Wandsworth  — SW11 (Battersea), SW12 (Balham), SW17 (Tooting),
-#                 SW18 (Wandsworth Town)
-#   Lambeth     — SE11, SW4 (Clapham), SW8, SW9, SE24 (Herne Hill)
-#   Lewisham    — SE4, SE6, SE12, SE13, SE14, SE23, SE21/SE22 (Dulwich border)
-#   Kingston    — KT1, KT2
-#   Richmond    — TW1, TW2, TW9, TW10
-#   Wimbledon   — SW19, SW20 (more targeted than Merton REGION)
-#   Teddington  — TW11 (not covered by Richmond REGION^61415)
-#   Herne Hill  — SE24 (also inside Lambeth; deduped by listing_id;
-#                 SE24 listings relabelled "Herne Hill" on each run)
+#   Wandsworth    — SW11 (Battersea), SW12 (Balham), SW15 (Putney),
+#                   SW17 (Tooting), SW18 (Wandsworth Town)
+#   Lambeth       — SE11, SW4 (Clapham), SW8, SW9, SE24 (Herne Hill)
+#   Kingston      — KT1, KT2
+#   Richmond      — TW1, TW2, TW9, TW10
+#   Wimbledon     — SW19, SW20
+#   Teddington    — TW11
+#   Herne Hill    — SE24 (also inside Lambeth; deduped by listing_id;
+#                   SE24 listings relabelled "Herne Hill" on each run)
+#   Tooting       — SW17 (more targeted label; also in Wandsworth region)
+#   Dulwich       — SE21
+#   East Dulwich  — SE22
+#   Bermondsey    — SE1/SE16
+#   Surbiton      — KT5/KT6
 #
 # Identifiers updated 2026-02-22 using the typeAhead endpoint:
 #   https://www.rightmove.co.uk/typeAhead/uknostreet/{TOKEN}/
 # Areas updated 2026-02-23: removed Merton, added Wimbledon/Teddington/Herne Hill.
-#
-# Dulwich (SE21) and East Dulwich (SE22) fall within Lewisham/Lambeth regions.
-# Uncomment the outcode entries below for finer-grained targeting.
+# Areas updated 2026-02-24: removed Lewisham, added Tooting/Dulwich/East Dulwich/
+#   Bermondsey/Surbiton.
 
 SEARCH_LOCATIONS = [
     {"name": "Wandsworth",           "identifier": "REGION^93977"},
     {"name": "Lambeth",              "identifier": "REGION^93971"},
-    {"name": "Lewisham",             "identifier": "REGION^61413"},
     {"name": "Kingston upon Thames", "identifier": "REGION^93968"},
     {"name": "Richmond upon Thames", "identifier": "REGION^61415"},
     {"name": "Wimbledon",            "identifier": "REGION^87540"},
     {"name": "Teddington",           "identifier": "REGION^1321"},
+    {"name": "Surbiton",             "identifier": "REGION^1296"},
+    {"name": "Bermondsey",           "identifier": "REGION^85212"},
+    {"name": "Tooting",              "identifier": "REGION^85419"},
+    {"name": "Dulwich",              "identifier": "OUTCODE^2050"},
+    {"name": "East Dulwich",         "identifier": "OUTCODE^2051"},
     {"name": "Herne Hill",           "identifier": "OUTCODE^2053"},
-    # Outcode-level alternatives (uncomment for tighter targeting):
-    # {"name": "Dulwich (SE21)",     "identifier": "OUTCODE^2050"},
-    # {"name": "East Dulwich (SE22)","identifier": "OUTCODE^2051"},
 ]
 
 # ── Request / scraping settings ────────────────────────────────────────────────
