@@ -20,7 +20,7 @@ from datetime import datetime
 # ── Logging setup (must happen before any module imports that use logging) ─────
 
 def _setup_logging() -> None:
-    from config import LOG_PATH, TFL_ENRICH_MAX_RUN
+    from config import LOG_PATH
 
     fmt = "%(asctime)s [%(levelname)-8s] %(name)s: %(message)s"
     handlers = [
@@ -85,6 +85,7 @@ def main() -> None:
         import time as _time
         from tfl import get_journey_mins
         from database import get_listings_needing_journey, set_journey_mins
+        from config import TFL_ENRICH_MAX_RUN
 
         to_enrich = get_listings_needing_journey(limit=TFL_ENRICH_MAX_RUN)
         if to_enrich:
