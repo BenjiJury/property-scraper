@@ -102,3 +102,10 @@ NTFY_URL = "https://ntfy.home.lan/keng-kxm29"
 # ── Dashboard display settings ────────────────────────────────────────────────
 
 SHOW_REMOVED_LISTINGS = True   # Show de-listed properties (dimmed) in table
+
+# ── TfL journey time settings ─────────────────────────────────────────────────
+
+COMMUTE_DEST       = "EC3V4AB"   # Bank / Monument, City of London
+TFL_APP_KEY        = ""          # optional — register free at api.tfl.gov.uk
+TFL_ARRIVE_TIME    = "0900"      # HHMM — target arrival time for comparison
+TFL_ENRICH_MAX_RUN = 50          # max existing-listing backfills per run

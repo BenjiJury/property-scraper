@@ -31,6 +31,7 @@ COLUMNS = [
     "latitude",
     "longitude",
     "sq_footage",
+    "journey_mins",
 ]
 
 
@@ -56,7 +57,8 @@ def export() -> int:
             l.status,
             l.latitude,
             l.longitude,
-            l.sq_footage
+            l.sq_footage,
+            l.journey_mins
         FROM listings l
         LEFT JOIN (
             SELECT listing_id, price

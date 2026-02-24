@@ -92,12 +92,13 @@ def notify_price_drops(price_drops: list) -> None:
     if count == 1:
         lst, old_price, new_price = price_drops[0]
         reduction = old_price - new_price
+        pct       = round((old_price - new_price) / old_price * 100, 1)
         url       = lst.get("listing_url", "")
         title     = "Price reduction"
         content   = (
             f"{lst['address']}\n"
             f"{lst.get('bedrooms', '?')} bed {lst.get('property_type', '')}  ·  {lst.get('area', '')}\n"
-            f"£{old_price:,}  →  £{new_price:,}   (saving £{reduction:,})\n"
+            f"£{old_price:,}  →  £{new_price:,}   (↓ £{reduction:,} / -{pct}%)\n"
             f"{url}"
         )
         _send(title, content, tags="chart_with_downwards_trend", click_url=url)
@@ -105,8 +106,9 @@ def notify_price_drops(price_drops: list) -> None:
         lines = []
         for lst, old_price, new_price in price_drops:
             reduction = old_price - new_price
+            pct = round((old_price - new_price) / old_price * 100, 1)
             lines.append(
-                f"• {lst['address']} — £{old_price:,} → £{new_price:,} (↓ £{reduction:,})"
+                f"• {lst['address']} — £{old_price:,} → £{new_price:,} (↓ £{reduction:,} / -{pct}%)"
             )
         title   = f"{count} price reductions"
         content = "\n".join(lines)

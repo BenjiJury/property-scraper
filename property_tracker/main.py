@@ -20,7 +20,7 @@ from datetime import datetime
 # ── Logging setup (must happen before any module imports that use logging) ─────
 
 def _setup_logging() -> None:
-    from config import LOG_PATH
+    from config import LOG_PATH, TFL_ENRICH_MAX_RUN
 
     fmt = "%(asctime)s [%(levelname)-8s] %(name)s: %(message)s"
     handlers = [
@@ -79,6 +79,24 @@ def main() -> None:
     except Exception as exc:
         # Notification failures are non-fatal
         logger.error("Notification error: %s", exc)
+
+    # 5 — Enrich journey times (new listings first, then backfill up to cap)
+    try:
+        import time as _time
+        from tfl import get_journey_mins
+        from database import get_listings_needing_journey, set_journey_mins
+
+        to_enrich = get_listings_needing_journey(limit=TFL_ENRICH_MAX_RUN)
+        if to_enrich:
+            logger.info("Enriching journey times for %d listings...", len(to_enrich))
+            for row in to_enrich:
+                mins = get_journey_mins(row["latitude"], row["longitude"])
+                if mins is not None:
+                    set_journey_mins(row["listing_id"], mins)
+                _time.sleep(0.5)
+            logger.info("Journey enrichment done")
+    except Exception as exc:
+        logger.error("Journey enrichment error: %s", exc)
 
     logger.info(
         "Run complete — %d new | %d price drops | %d total",

@@ -84,9 +84,10 @@ def init_db() -> None:
 
         # Add new columns to existing DBs — safe to re-run (ignore if already present)
         for col_def in [
-            "ALTER TABLE listings ADD COLUMN latitude   REAL",
-            "ALTER TABLE listings ADD COLUMN longitude  REAL",
-            "ALTER TABLE listings ADD COLUMN sq_footage INTEGER",
+            "ALTER TABLE listings ADD COLUMN latitude    REAL",
+            "ALTER TABLE listings ADD COLUMN longitude   REAL",
+            "ALTER TABLE listings ADD COLUMN sq_footage  INTEGER",
+            "ALTER TABLE listings ADD COLUMN journey_mins INTEGER",
         ]:
             try:
                 conn.execute(col_def)
@@ -125,20 +126,21 @@ def upsert_listing(listing: dict) -> dict:
                     (listing_id, address, price, bedrooms, bathrooms,
                      property_type, tenure, area, listing_url, listing_date,
                      first_seen, last_seen, status,
-                     latitude, longitude, sq_footage)
+                     latitude, longitude, sq_footage, journey_mins)
                 VALUES
                     (:listing_id, :address, :price, :bedrooms, :bathrooms,
                      :property_type, :tenure, :area, :listing_url, :listing_date,
                      :first_seen, :last_seen, 'active',
-                     :latitude, :longitude, :sq_footage)
+                     :latitude, :longitude, :sq_footage, :journey_mins)
                 """,
                 {
                     **listing,
                     "first_seen": now,
                     "last_seen": now,
-                    "latitude":   listing.get("latitude"),
-                    "longitude":  listing.get("longitude"),
-                    "sq_footage": listing.get("sq_footage"),
+                    "latitude":    listing.get("latitude"),
+                    "longitude":   listing.get("longitude"),
+                    "sq_footage":  listing.get("sq_footage"),
+                    "journey_mins": listing.get("journey_mins"),
                 },
             )
             conn.execute(
@@ -175,7 +177,8 @@ def upsert_listing(listing: dict) -> dict:
                     listing_url   = ?,
                     latitude      = COALESCE(?, latitude),
                     longitude     = COALESCE(?, longitude),
-                    sq_footage    = COALESCE(?, sq_footage)
+                    sq_footage    = COALESCE(?, sq_footage),
+                    journey_mins  = COALESCE(?, journey_mins)
                 WHERE listing_id = ?
                 """,
                 (
@@ -191,6 +194,7 @@ def upsert_listing(listing: dict) -> dict:
                     listing.get("latitude"),
                     listing.get("longitude"),
                     listing.get("sq_footage"),
+                    listing.get("journey_mins"),
                     listing["listing_id"],
                 ),
             )
@@ -267,3 +271,27 @@ def get_price_history(listing_id: str) -> list:
             (listing_id,),
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+def get_listings_needing_journey(limit: int) -> list:
+    """Return active listings with lat/lng but no journey_mins, up to limit."""
+    with db_connection() as conn:
+        rows = conn.execute(
+            """SELECT listing_id, latitude, longitude
+               FROM listings
+               WHERE status='active'
+                 AND latitude IS NOT NULL
+                 AND journey_mins IS NULL
+               LIMIT ?""",
+            (limit,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def set_journey_mins(listing_id: str, mins: int) -> None:
+    """Update journey_mins for a single listing."""
+    with db_connection() as conn:
+        conn.execute(
+            "UPDATE listings SET journey_mins = ? WHERE listing_id = ?",
+            (mins, listing_id),
+        )

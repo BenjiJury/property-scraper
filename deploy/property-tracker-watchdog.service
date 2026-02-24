@@ -1,0 +1,10 @@
+[Unit]
+Description=Property Tracker — scraper silence watchdog
+
+[Service]
+Type=oneshot
+User=ben
+WorkingDirectory=/home/ben/property-tracker/property_tracker
+ExecStart=/home/ben/property-tracker/venv/bin/python3 /home/ben/property-tracker/property_tracker/watchdog.py
+StandardOutput=journal
+StandardError=journal

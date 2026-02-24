@@ -27,16 +27,23 @@ echo "[2/4] Setting permissions on run.sh ..."
 chmod +x "$REPO/deploy/run.sh"
 
 # ── 3. Install systemd units ───────────────────────────────────────────────────
-echo "[3/4] Installing systemd units ..."
-sudo cp "$REPO/deploy/property-tracker.service" "$SERVICE_DIR/"
-sudo cp "$REPO/deploy/property-tracker.timer"   "$SERVICE_DIR/"
+echo "[3/5] Installing systemd units ..."
+sudo cp "$REPO/deploy/property-tracker.service"          "$SERVICE_DIR/"
+sudo cp "$REPO/deploy/property-tracker.timer"            "$SERVICE_DIR/"
+sudo cp "$REPO/deploy/property-tracker-watchdog.service" "$SERVICE_DIR/"
+sudo cp "$REPO/deploy/property-tracker-watchdog.timer"   "$SERVICE_DIR/"
 sudo systemctl daemon-reload
 
-# ── 4. Enable and start the timer ─────────────────────────────────────────────
-echo "[4/4] Enabling property-tracker.timer ..."
+# ── 4. Enable and start the scraper timer ─────────────────────────────────────
+echo "[4/5] Enabling property-tracker.timer ..."
 sudo systemctl enable --now property-tracker.timer
+
+# ── 5. Enable and start the watchdog timer ────────────────────────────────────
+echo "[5/5] Enabling property-tracker-watchdog.timer ..."
+sudo systemctl enable --now property-tracker-watchdog.timer
 
 echo ""
 echo "=== Done ==="
 echo "Timer status:"
 systemctl status property-tracker.timer --no-pager || true
+systemctl status property-tracker-watchdog.timer --no-pager || true
