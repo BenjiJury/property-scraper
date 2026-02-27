@@ -54,6 +54,7 @@ PRICE_DROP_THRESHOLD = 0
 #   Tooting       — SW17 (more targeted label; also in Wandsworth region)
 #   Dulwich       — SE21
 #   East Dulwich  — SE22
+#   West Dulwich  — SE21/SE27
 #   Bermondsey    — SE1/SE16
 #   Surbiton      — KT5/KT6
 #
@@ -62,6 +63,7 @@ PRICE_DROP_THRESHOLD = 0
 # Areas updated 2026-02-23: removed Merton, added Wimbledon/Teddington/Herne Hill.
 # Areas updated 2026-02-24: removed Lewisham, added Tooting/Dulwich/East Dulwich/
 #   Bermondsey/Surbiton.
+# Areas updated 2026-02-27: added West Dulwich.
 
 SEARCH_LOCATIONS = [
     {"name": "Wandsworth",           "identifier": "REGION^93977"},
@@ -75,6 +77,7 @@ SEARCH_LOCATIONS = [
     {"name": "Tooting",              "identifier": "REGION^85419"},
     {"name": "Dulwich",              "identifier": "OUTCODE^2050"},
     {"name": "East Dulwich",         "identifier": "OUTCODE^2051"},
+    {"name": "West Dulwich",         "identifier": "REGION^70448"},
     {"name": "Herne Hill",           "identifier": "OUTCODE^2053"},
 ]
 
