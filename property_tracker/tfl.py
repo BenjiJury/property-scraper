@@ -8,6 +8,8 @@ Returns None on any API error or if no journey is found.
 """
 
 import logging
+from datetime import date, timedelta
+
 import requests
 from config import COMMUTE_DEST, TFL_APP_KEY, TFL_ARRIVE_TIME
 
@@ -15,7 +17,17 @@ logger = logging.getLogger(__name__)
 
 _TFL_BASE = "https://api.tfl.gov.uk/Journey/JourneyResults"
 _MODES    = "tube,overground,elizabeth-line,national-rail"
-_DATE     = "20260309"   # Monday 9 Mar 2026 — fixed weekday for consistency
+
+
+def _next_monday() -> str:
+    """Return the date of the next Monday (or today if today is Monday) as YYYYMMDD."""
+    d = date.today()
+    days_ahead = (7 - d.weekday()) % 7 or 7   # days until next Monday (never 0)
+    return (d + timedelta(days=days_ahead)).strftime("%Y%m%d")
+
+
+# Computed once at import time — always a future Monday for consistent timetable data.
+_DATE = _next_monday()
 
 
 def get_journey_mins(lat: float, lng: float) -> int | None:

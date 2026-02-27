@@ -64,6 +64,8 @@ PRICE_DROP_THRESHOLD = 0
 # Areas updated 2026-02-24: removed Lewisham, added Tooting/Dulwich/East Dulwich/
 #   Bermondsey/Surbiton.
 # Areas updated 2026-02-27: added West Dulwich.
+# Areas updated 2026-02-27: Dulwich OUTCODE^2050 → REGION^87503,
+#   Herne Hill OUTCODE^2053 → REGION^85409 (REGION IDs more reliable post-Next.js).
 
 SEARCH_LOCATIONS = [
     {"name": "Wandsworth",           "identifier": "REGION^93977"},
@@ -75,10 +77,10 @@ SEARCH_LOCATIONS = [
     {"name": "Surbiton",             "identifier": "REGION^1296"},
     {"name": "Bermondsey",           "identifier": "REGION^85212"},
     {"name": "Tooting",              "identifier": "REGION^85419"},
-    {"name": "Dulwich",              "identifier": "OUTCODE^2050"},
+    {"name": "Dulwich",              "identifier": "REGION^87503"},
     {"name": "East Dulwich",         "identifier": "OUTCODE^2051"},
     {"name": "West Dulwich",         "identifier": "REGION^70448"},
-    {"name": "Herne Hill",           "identifier": "OUTCODE^2053"},
+    {"name": "Herne Hill",           "identifier": "REGION^85409"},
 ]
 
 # ── Request / scraping settings ────────────────────────────────────────────────
@@ -102,6 +104,9 @@ LOG_PATH = os.path.join(BASE_DIR, "tracker.log")
 # Leave empty ("") to disable notifications.
 NTFY_URL = "https://ntfy.home.lan/keng-kxm29"
 
+# SSL verification for ntfy. Set False for self-signed / LAN certificates.
+NTFY_VERIFY_SSL = False
+
 # ── Dashboard display settings ────────────────────────────────────────────────
 
 SHOW_REMOVED_LISTINGS = True   # Show de-listed properties (dimmed) in table
@@ -112,3 +117,9 @@ COMMUTE_DEST       = "EC3V4AB"   # Bank / Monument, City of London
 TFL_APP_KEY        = ""          # optional — register free at api.tfl.gov.uk
 TFL_ARRIVE_TIME    = "0900"      # HHMM — target arrival time for comparison
 TFL_ENRICH_MAX_RUN = 50          # max existing-listing backfills per run
+
+# ── Square footage enrichment ──────────────────────────────────────────────────
+
+# Max individual listing pages to scrape for sq_footage per run.
+# Each fetch takes 3–7 s; 10/run ≈ 30–70 s extra per cycle.
+SQFT_ENRICH_MAX_RUN = 10

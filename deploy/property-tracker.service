@@ -11,3 +11,6 @@ ExecStart=/home/ben/property-tracker/deploy/run.sh
 Environment=RCLONE_DEST=gdrive:PropertyTracker
 StandardOutput=journal
 StandardError=journal
+TimeoutStartSec=600
+Restart=on-failure
+RestartSec=300

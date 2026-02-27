@@ -13,7 +13,7 @@ price_history entry so that the dashboard can highlight reductions.
 import logging
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Iterator
 
 from config import DB_PATH
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 # ── Connection helpers ─────────────────────────────────────────────────────────
 
 def _get_connection() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=10)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")   # safe for concurrent reads
     conn.execute("PRAGMA foreign_keys=ON")
@@ -106,11 +106,12 @@ def upsert_listing(listing: dict) -> dict:
     Returns
     -------
     dict with keys:
-        'is_new'      — True if this listing_id was not seen before
-        'price_drop'  — (old_price, new_price) tuple, or None
+        'is_new'         — True if this listing_id was not seen before
+        'price_drop'     — (old_price, new_price) tuple, or None
+        'price_increase' — (old_price, new_price) tuple, or None
     """
-    now    = datetime.utcnow().isoformat()
-    result = {"is_new": False, "price_drop": None}
+    now    = datetime.now(timezone.utc).isoformat()
+    result = {"is_new": False, "price_drop": None, "price_increase": None}
 
     with db_connection() as conn:
         existing = conn.execute(
@@ -161,6 +162,8 @@ def upsert_listing(listing: dict) -> dict:
                 )
                 if new_price < old_price:
                     result["price_drop"] = (old_price, new_price)
+                elif new_price > old_price:
+                    result["price_increase"] = (old_price, new_price)
 
             conn.execute(
                 """
@@ -202,20 +205,28 @@ def upsert_listing(listing: dict) -> dict:
     return result
 
 
-def mark_removed(listing_ids_seen: set) -> None:
+def mark_removed(listing_ids_seen: set) -> list:
     """
     Any listing previously active but absent from listing_ids_seen is
     marked as 'removed'.
+
+    Returns a list of dicts for the removed listings (address, price,
+    first_seen, area, listing_url, bedrooms, property_type).
     """
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
+    removed_listings = []
+
     with db_connection() as conn:
         active_rows = conn.execute(
-            "SELECT listing_id FROM listings WHERE status = 'active'"
+            """SELECT listing_id, address, price, first_seen, area,
+                      listing_url, bedrooms, property_type
+               FROM listings WHERE status = 'active'"""
         ).fetchall()
-        active_ids = {row["listing_id"] for row in active_rows}
-        to_remove  = active_ids - listing_ids_seen
+        active_map = {row["listing_id"]: dict(row) for row in active_rows}
+        to_remove  = set(active_map.keys()) - listing_ids_seen
 
         if to_remove:
+            removed_listings = [active_map[lid] for lid in to_remove]
             placeholders = ",".join("?" * len(to_remove))
             conn.execute(
                 f"UPDATE listings SET status='removed', last_seen=? "
@@ -223,6 +234,8 @@ def mark_removed(listing_ids_seen: set) -> None:
                 [now, *to_remove],
             )
             logger.info("Marked %d listing(s) as removed", len(to_remove))
+
+    return removed_listings
 
 
 # ── Read helpers ───────────────────────────────────────────────────────────────
@@ -294,4 +307,27 @@ def set_journey_mins(listing_id: str, mins: int) -> None:
         conn.execute(
             "UPDATE listings SET journey_mins = ? WHERE listing_id = ?",
             (mins, listing_id),
+        )
+
+
+def get_listings_needing_sqft(limit: int) -> list:
+    """Return active listings without sq_footage, up to limit."""
+    with db_connection() as conn:
+        rows = conn.execute(
+            """SELECT listing_id
+               FROM listings
+               WHERE status='active'
+                 AND sq_footage IS NULL
+               LIMIT ?""",
+            (limit,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def set_sq_footage(listing_id: str, sqft: int) -> None:
+    """Update sq_footage for a single listing."""
+    with db_connection() as conn:
+        conn.execute(
+            "UPDATE listings SET sq_footage = ? WHERE listing_id = ?",
+            (sqft, listing_id),
         )

@@ -145,9 +145,14 @@ def _search_url(location_identifier: str, index: int = 0) -> str:
 def _fetch(url: str, session: requests.Session) -> str | None:
     """
     GET a URL and return the response text, or None on any error.
-    Handles 429 / 403 with a longer back-off before giving up.
+    Handles 429 with exponential back-off: 3 attempts with 60 s and 120 s waits.
     """
-    for attempt in (1, 2):
+    for attempt, wait in enumerate([0, 60, 120], start=1):
+        if wait:
+            logger.warning(
+                "Rate-limited — backing off %ds before attempt %d/3", wait, attempt
+            )
+            time.sleep(wait)
         try:
             response = session.get(
                 url,
@@ -156,9 +161,8 @@ def _fetch(url: str, session: requests.Session) -> str | None:
                 allow_redirects=True,
             )
             if response.status_code == 429:
-                logger.warning("Rate-limited (429) on attempt %d — backing off 60 s", attempt)
-                time.sleep(60)
-                continue
+                logger.warning("Rate-limited (429) on attempt %d/3", attempt)
+                continue   # next iteration will sleep before retrying
             if response.status_code == 403:
                 logger.warning("Blocked (403) fetching %s", url)
                 return None
@@ -173,6 +177,8 @@ def _fetch(url: str, session: requests.Session) -> str | None:
         except requests.RequestException as exc:
             logger.error("HTTP error fetching %s: %s", url, exc)
             return None
+
+    logger.warning("Rate-limited (429) after 3 attempts — giving up on %s", url)
     return None
 
 
@@ -363,6 +369,54 @@ def lookup_location(query: str) -> list:
     except Exception as exc:
         logger.error("Location lookup failed for '%s': %s", query, exc)
         return []
+
+
+def scrape_listing_page(listing_id: str, session: requests.Session) -> int | None:
+    """
+    Fetch an individual Rightmove listing page and return sq_footage (sq ft), or None.
+
+    Individual listing pages contain richer data than search results — in
+    particular, displaySize is present for many listings that don't expose it
+    in the search-result JSON.
+    """
+    url  = f"{_BASE_URL}/properties/{listing_id}"
+    html = _fetch(url, session)
+    if not html:
+        return None
+
+    m = re.search(
+        r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>',
+        html,
+        re.DOTALL,
+    )
+    if not m:
+        logger.debug("No __NEXT_DATA__ on listing page %s", listing_id)
+        return None
+
+    try:
+        page_data  = json.loads(m.group(1))
+        page_props = page_data.get("props", {}).get("pageProps", {}) or {}
+
+        # Navigate to the property detail object — path varies by page type
+        prop = (
+            page_props.get("propertyData")
+            or page_props.get("property")
+            or {}
+        )
+
+        # displaySize is a top-level field on the property object
+        display_size = prop.get("displaySize", "") or ""
+
+        # Also check sizings array (alternative schema used on some listing types)
+        if not display_size:
+            sizings = prop.get("sizings") or []
+            if sizings and isinstance(sizings, list):
+                display_size = sizings[0].get("displaySize", "") or ""
+
+        return _parse_sq_footage(display_size)
+    except Exception as exc:
+        logger.debug("Error parsing listing page %s: %s", listing_id, exc)
+        return None
 
 
 # ── Area scraper ───────────────────────────────────────────────────────────────
