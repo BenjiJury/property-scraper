@@ -11,6 +11,8 @@ Set NTFY_URL = "" to disable notifications entirely.
 import logging
 
 import requests
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 from config import NTFY_URL, NTFY_VERIFY_SSL
 
